@@ -1,0 +1,49 @@
+# Multi-Environment SDK Configuration
+# 
+# This file defines default configuration environments for multi-env-sdk tasks.
+# Tasks can specify a default environment, which will be used if --config-env is not provided.
+# 
+# The env values below are defaults and can be overridden on the command line using --config-env
+# 
+# Future Enhancement: At some point, we will want to allow for a copy of this file in the cwd 
+# where tasks are run to override the settings here in the sdk itself. The override will be a merge
+# operation, not a total replacement, allowing applications to customize specific values while
+# inheriting the rest from the SDK defaults.
+
+tasks:
+  # Docker tasks default to local-docker environment
+  docker_build:
+    env: local-docker
+  
+  docker_run:
+    env: local-docker
+  
+  docker_status:
+    env: local-docker
+  
+  docker_cleanup:
+    env: local-docker
+  
+  # Local server tasks default to local-server environment
+  api_start:
+    env: local-server
+  
+  api_stop:
+    env: local-server
+  
+  api_status:
+    env: local-server
+  
+  api_restart:
+    env: local-server
+  
+  # Test tasks can specify their own defaults
+  test:
+    env: unit-testing
+  
+  # Build and deploy tasks
+  build:
+    env: dev
+  
+  deploy:
+    env: prod

@@ -1,0 +1,28 @@
+# This file defines test modes and their execution configuration.
+# Test modes are selected via test suite selection (unit, api, firestore, ai).
+
+modes:
+  unit:
+    description: "Unit tests with mocked dependencies"
+    tests:
+      paths: ["unit", "providers"]
+    default-env: "unit-testing"
+    omit-integration: true
+    
+  ai:
+    description: "Integration tests with real AI API calls"
+    tests:
+      paths: ["ai"]
+    default-env: "unit-testing"
+    
+  firestore:
+    description: "Firestore tests with Firebase data provider"
+    tests:
+      paths: ["firestore", "providers"]
+    default-env: "dev"
+    
+  api:
+    description: "API tests via HTTP (focus on network interface)"
+    tests:
+      paths: ["api", "providers"]
+    default-env: "local-server"

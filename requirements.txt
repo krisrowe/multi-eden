@@ -1,0 +1,12 @@
+# Core dependencies for multi-eden SDK
+invoke>=2.0.0
+pyyaml>=6.0
+PyJWT>=2.0.0
+requests>=2.25.0
+firebase-admin>=5.0.0
+pydantic>=2.0.0
+google-genai>=0.3.0
+
+# Development dependencies (optional)
+pytest>=7.0.0
+pytest-cov>=4.0.0

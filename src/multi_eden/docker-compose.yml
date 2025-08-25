@@ -1,0 +1,57 @@
+services:
+  # Backend API service
+  api:
+    build: 
+      context: ../core
+      dockerfile: Dockerfile
+    container_name: my-app-api
+    ports:
+      - "8001:8080"
+    # No environment variables needed - config comes from --config-env argument
+    volumes:
+      - ../config/secrets/${CONFIG_ENV:-dev}/secrets.json:/app/config/secrets/static/secrets.json:ro
+    command: ["python", "-m", "api", "--config-env=static"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - my-app-network
+
+  # Frontend web service
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL
+        - VITE_AUTH_TOKEN
+    container_name: my-app-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8001
+      - VITE_AUTH_TOKEN
+    volumes:
+      # Mount source code for hot reload in development
+      - ../frontend/src:/app/src
+      - ../frontend/public:/app/public
+      - ../frontend/package.json:/app/package.json
+      - ../frontend/vite.config.js:/app/vite.config.js
+      # Exclude node_modules to avoid conflicts
+      - /app/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - my-app-network
+
+networks:
+  my-app-network:
+    driver: bridge
+
+volumes:
+  # Optional: persist node_modules for faster rebuilds
+  frontend_node_modules:

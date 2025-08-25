@@ -1,0 +1,16 @@
+# Multi-Environment SDK Dependencies
+# These are the minimal dependencies needed for the SDK to function
+
+# Task execution framework
+invoke>=2.0.0
+
+# YAML parsing for CLI plugin system
+PyYAML>=6.0
+
+# Testing framework (dev dependency)
+pytest>=7.0.0
+pytest-mock>=3.10.0
+
+# No other external dependencies - uses only Python standard library
+# and system tools (gcloud, gsutil, terraform)
+

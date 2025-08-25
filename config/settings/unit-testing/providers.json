@@ -1,0 +1,5 @@
+{
+  "auth_provider": ["custom"],
+  "data_provider": "tinydb",
+  "ai_provider": "mocked"
+}
