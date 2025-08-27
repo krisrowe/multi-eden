@@ -22,6 +22,7 @@ from multi_eden.build.tasks.auth import token
 from multi_eden.build.tasks.config.backup import config_env_backup
 from multi_eden.build.tasks.config.restore import config_env_restore
 from multi_eden.build.tasks.config.env import config_env_create, config_env_list
+from multi_eden.build.tasks.python_exec import py, env
 
 # All @task decorated functions from the imports above are now available
 # No need to manually assign them - invoke will discover them automatically

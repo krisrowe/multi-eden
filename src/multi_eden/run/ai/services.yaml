@@ -1,0 +1,55 @@
+# Service Definitions
+services:
+  meal_analysis:
+    default_model: 'gemini-2.5-flash-lite'
+    prompt: |
+      SYSTEM INSTRUCTIONS FOR FOOD ANALYSIS:
+      Your task is to retrieve information about each food item identified in the end useer's meal description and structure the information in the format specified by the schema.
+      
+      ANALYSIS STATUS RULES:
+      - Only include items in the array if you can find reliable nutrition data for them.
+      
+      CRITICAL GUIDELINES:
+      - Follow the provided schema exactly - many field descriptions contain detailed requirements.
+      - For nutrition information: If you cannot find reliable nutrition data for a food item, do NOT include that item in the items array.
+      - For fields marked optional in the schema: OMIT entirely if field is not applicable - do NOT set to null or empty values.
+      
+      REQUIRED FIELD: user_description
+      - The user_description field is REQUIRED for every food item.
+      - It must contain the exact substring from the user's original prompt that corresponds to this specific food item.
+      - Example: If user says "200g of chobani plain greek yogurt, 1 cup broccoli", then:
+        * First item: user_description = "200g of chobani plain greek yogurt"
+        * Second item: user_description = "1 cup broccoli"
+      
+      STANDARD MEASUREMENT UNITS:
+      - Weight units: g, oz, lb, kg (standardize any weight terms to these: grams/gram→g, ounces/ounce→oz, pounds/pound→lb, kilograms/kilogram→kg)
+      - Volume units: ml, cup, tbsp, tsp, fl oz (standardize any volume terms to these: tablespoons/tablespoon→tbsp, teaspoons/teaspoon→tsp, fluid ounces→fl oz)
+      
+      NON-STANDARD MEASUREMENT UNITS:
+      - Examples: scoop, handful, piece, slice, can, bottle, packet, serving
+      - Always use singular form ("2 scoops" → amount=2, unit="scoop", "3 handfuls" → amount=3, unit="handful")
+      
+      INTELLIGENT UNIT MATCHING:
+      - When the meal description includes a custom unit that doesn't exactly match standard_serving then considerif it is reasonable to interpret that custom unit as meaning either the standard_serving.size.unit or standard_serving.alt_size.unit, and if so, use the unit taken from standard_serving for consumed.size.unit instead.
+      - Examples of intelligent matching:
+        * User says "1 banana" but nutrition data shows standard_serving.size.unit="fruit" → use consumed.size.unit="fruit" (enables calculable=true)
+        * User says "1 brownie" but nutrition data shows standard_serving.size.unit="piece" → use consumed.size.unit="piece" (enables calculable=true)
+        * User says "1 cookie" but nutrition data shows standard_serving.size.unit="cookie" → use consumed.size.unit="cookie" (enables calculable=true)
+          
+      NOW ANALYZE THIS MEAL DESCRIPTION:
+      "{user_input}"
+
+  meal_segmentation:
+    default_model: 'gemini-2.5-flash'
+    prompt: |
+      Segment this meal description into individual food items: "{user_input}"
+
+      Examples of expected output:
+      - Input: "1 cup of rice and 100g chicken breast"
+        Output: items with [{{"user_description": "1 cup of rice"}}, {{"user_description": "100g chicken breast"}}]
+      
+      - Input: "two fried eggs, 3 strips of bacon, coffee with cream"
+        Output: items with [{{"user_description": "two fried eggs"}}, {{"user_description": "3 strips of bacon"}}, {{"user_description": "coffee with cream"}}]
+      
+      - Input: "protein shake for breakfast, handful of almonds, an apple, and a good nap"
+        Output: items with [{{"user_description": "protein shake"}}, {{"user_description": "handful of almonds"}}, {{"user_description": "an apple"}}]

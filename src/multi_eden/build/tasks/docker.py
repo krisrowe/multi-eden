@@ -9,7 +9,7 @@ import os
 import json
 from pathlib import Path
 from invoke import task
-from .config.decorators import requires_config_env
+from multi_eden.build.tasks.config.decorators import requires_config_env
 
 
 def get_repo_root():
@@ -203,10 +203,52 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
         env_vars["VITE_AUTH_TOKEN"] = token
         env_vars["CONFIG_ENV"] = config_env
         
+        # Load and inject environment variables from configuration files
+        try:
+            from multi_eden.build.config.env import load_env
+            
+            load_env(config_env)
+            
+            # Copy environment variables set by load_env() to our env_vars dict
+            if os.environ.get('STUB_AI'):
+                env_vars['STUB_AI'] = os.environ['STUB_AI']
+                print(f"🔧 STUB_AI={os.environ['STUB_AI']} (from config)")
+            
+            if os.environ.get('STUB_DB'):
+                env_vars['STUB_DB'] = os.environ['STUB_DB']
+                print(f"🔧 STUB_DB={os.environ['STUB_DB']} (from config)")
+            
+            if os.environ.get('CUSTOM_AUTH_ENABLED'):
+                env_vars['CUSTOM_AUTH_ENABLED'] = os.environ['CUSTOM_AUTH_ENABLED']
+                print(f"🔧 CUSTOM_AUTH_ENABLED={os.environ['CUSTOM_AUTH_ENABLED']} (from config)")
+            
+            if os.environ.get('CUSTOM_AUTH_SALT'):
+                env_vars['CUSTOM_AUTH_SALT'] = os.environ['CUSTOM_AUTH_SALT']
+                print(f"🔧 CUSTOM_AUTH_SALT set (from config)")
+            
+            if os.environ.get('GEMINI_API_KEY'):
+                env_vars['GEMINI_API_KEY'] = os.environ['GEMINI_API_KEY']
+                print(f"🔧 GEMINI_API_KEY set (from config)")
+            
+            if os.environ.get('ALL_AUTHENTICATED_USERS'):
+                env_vars['ALL_AUTHENTICATED_USERS'] = os.environ['ALL_AUTHENTICATED_USERS']
+                print(f"🔧 ALL_AUTHENTICATED_USERS={os.environ['ALL_AUTHENTICATED_USERS']} (from config)")
+            
+            if os.environ.get('ALLOWED_USER_EMAILS'):
+                env_vars['ALLOWED_USER_EMAILS'] = os.environ['ALLOWED_USER_EMAILS']
+                print(f"🔧 ALLOWED_USER_EMAILS set (from config)")
+            
+        except Exception as e:
+            print(f"⚠️  Could not load provider configuration: {e}")
+            print(f"⚠️  Using default environment variables")
+        
         print(f"🔧 Environment variables:")
         print(f"   VITE_API_URL: {env_vars.get('VITE_API_URL')}")
         print(f"   VITE_AUTH_TOKEN: {env_vars.get('VITE_AUTH_TOKEN')[:20]}..." if env_vars.get('VITE_AUTH_TOKEN') else "   VITE_AUTH_TOKEN: None")
         print(f"   CONFIG_ENV: {env_vars.get('CONFIG_ENV')}")
+        print(f"   STUB_AI: {env_vars.get('STUB_AI', 'not set')}")
+        print(f"   STUB_DB: {env_vars.get('STUB_DB', 'not set')}")
+        print(f"   CUSTOM_AUTH_ENABLED: {env_vars.get('CUSTOM_AUTH_ENABLED', 'not set')}")
         
         compose_cmd = "docker compose up --build -d"
         result = run_command(compose_cmd, env=env_vars)

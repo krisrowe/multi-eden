@@ -4,7 +4,7 @@ Base client for AI model interactions.
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Callable
-from .util import get_prompt
+from .services import get_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,8 @@ class ModelClient(ABC):
     
     Handles prompt template injection and provides access to the original user prompt.
     """
+    
+    interface_type: str = "llm"  # Interface type for test data
     
     def __init__(self, service_name: str):
         """

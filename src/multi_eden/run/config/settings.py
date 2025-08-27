@@ -1,13 +1,13 @@
 """
 Environment and secrets management.
 
-Loads secrets configuration based on --config-env command line argument.
+Loads configuration from environment variables that are set by task runners.
+Task runners load configuration files and inject them as environment variables.
 """
 import json
 import logging
 import os
 import sys
-import argparse
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
@@ -151,15 +151,9 @@ def _parse_command_line() -> None:
     Parse command line arguments for --config-env if not already set.
     Only runs if _config_env is not already set.
     
-    RATIONALE: This lazy loading approach automatically handles all entry points:
-    - API Server (core/api.py) - Started via Docker/Cloud Run
-    - CLI Interface (core/cli.py) - Started via invoke tasks or direct execution  
-    - Test Suite (pytest) - Started via invoke test or direct pytest execution
-    - Custom Entry Points - Any Python script that imports the SDK
-    - AI Coding Assistant Entry Points - Dynamic execution by Cursor, Gemini CLI, Windsurf, etc.
-    
-    This eliminates the need to call set_config_env() in every entry point and ensures
-    consistent behavior regardless of how the code is invoked.
+    NOTE: This function is now deprecated since configuration is loaded by task runners
+    and passed via environment variables. Direct execution requires environment variables
+    to be set beforehand.
     """
     global _config_env
     
@@ -167,22 +161,9 @@ def _parse_command_line() -> None:
     if _config_env:
         return
     
-    # Quick check if --config-env is present (handle both --config-env=value and --config-env value formats)
-    if any(arg.startswith('--config-env') for arg in sys.argv):
-        try:
-            # Parse just the --config-env argument
-            parser = argparse.ArgumentParser(add_help=False)
-            parser.add_argument('--config-env', required=True)
-            parsed_args, _ = parser.parse_known_args(sys.argv)
-            
-            if parsed_args.config_env:
-                logger.debug(f"Setting config environment from command line: {parsed_args.config_env}")
-                set_config_env(parsed_args.config_env)
-                return
-        except Exception as e:
-            logger.debug(f"Failed to parse --config-env from command line: {e}")
-    
-    logger.debug("No --config-env found in command line arguments")
+    # No longer parsing --config-env from command line
+    # Configuration must be provided via environment variables by task runners
+    logger.debug("No --config-env parsing - configuration must be provided via environment variables")
 
 
 def ensure_env_config_loaded() -> None:
@@ -207,7 +188,7 @@ def ensure_env_config_loaded() -> None:
         logger.debug("Secrets loaded successfully")
     except Exception as e:
         logger.error(f"Failed to load secrets: {e}")
-        raise ConfigurationException(f"Configuration environment not set. Use --config-env argument (e.g., --config-env dev)")
+        raise ConfigurationException("Configuration environment not set. Environment variables must be provided by task runners.")
     
     # Verify key configuration values
     if not secrets.salt or not secrets.salt.strip():
@@ -258,7 +239,11 @@ def set_config_env(env_name: str) -> None:
 
 
 def get_secrets() -> SecretsConfig:
-    """Get secrets configuration using SECRETS_PATH environment variable.
+    """Get secrets configuration from environment variables.
+    
+    This function is used at runtime when the app is running. The build package
+    (invoke tasks) loads secrets from secrets.json and injects them as environment
+    variables before starting the app.
     
     PRINCIPLES ENFORCED:
     - Never returns None or invalid configurations
@@ -268,58 +253,58 @@ def get_secrets() -> SecretsConfig:
     - Never suppresses exceptions inappropriately
     - Uses lazy loading with caching for performance
     
-    Uses lazy loading with caching - loads from disk once, then returns cached instance.
-    This function now uses the current environment's secrets directory to locate the secrets.json file.
+    Uses lazy loading with caching - loads from environment once, then returns cached instance.
     
     Returns:
-        SecretsConfig instance loaded from environment secrets (never None).
+        SecretsConfig instance loaded from environment variables (never None).
         
     Raises:
-        SecretsNotAvailableException: If secrets file missing, invalid, or cannot be parsed
+        SecretsNotAvailableException: If required environment variables are missing
     """
     global _secrets
-    
-    # Ensure command line arguments have been parsed for --config-env if needed
-    _parse_command_line()
     
     # Return cached instance if already loaded
     if _secrets is not None:
         return _secrets
     
     try:
-        # Get secrets file path using new helper
-        secrets_path = _get_secrets_file_path()
-        
-        # Load secrets directly
-        try:
-            with open(secrets_path, 'r') as f:
-                config_dict = json.load(f)
-        except json.JSONDecodeError as e:
-            error_msg = f"Invalid JSON in secrets file {secrets_path}: {e}"
-            logger.error(f"Secrets loading failed: {error_msg}")
-            raise SecretsNotAvailableException(error_msg)
-        except Exception as e:
-            error_msg = f"Failed to read secrets file {secrets_path}: {e}"
+        # Get salt from environment variable
+        salt = os.environ.get('CUSTOM_AUTH_SALT')
+        if not salt:
+            error_msg = "CUSTOM_AUTH_SALT environment variable is required but not set"
             logger.error(f"Secrets loading failed: {error_msg}")
             raise SecretsNotAvailableException(error_msg)
         
-        logger.debug(f"Loading secrets from: {secrets_path}")
+        # Get authorization settings from environment variables
+        all_authenticated_users = os.environ.get('ALL_AUTHENTICATED_USERS', 'false').lower() in ('true', '1', 'yes', 'on')
         
-        try:
-            secrets_config = SecretsConfig.from_dict(config_dict)
-        except Exception as e:
-            error_msg = f"Failed to create SecretsConfig from {secrets_path}: {e}"
-            logger.error(f"Secrets loading failed: {error_msg}")
-            raise SecretsNotAvailableException(error_msg)
+        # Get allowed user emails from environment variable (comma-separated)
+        allowed_emails_str = os.environ.get('ALLOWED_USER_EMAILS', '')
+        if allowed_emails_str:
+            allowed_user_emails = [email.strip() for email in allowed_emails_str.split(',')]
+        else:
+            allowed_user_emails = []
+        
+        # Create authorization object
+        from .secrets import Authorization
+        authorization = Authorization(
+            all_authenticated_users=all_authenticated_users,
+            allowed_user_emails=allowed_user_emails
+        )
+        
+        # Create secrets config (note: google_api_key is no longer needed)
+        from .secrets import SecretsConfig
+        secrets_config = SecretsConfig(
+            salt=salt,
+            google_api_key="",  # No longer used, but required by SecretsConfig
+            authorization=authorization
+        )
         
         # Cache the loaded secrets for future calls
         _secrets = secrets_config
-        logger.debug(f"Successfully loaded secrets from: {secrets_path}")
+        logger.debug("Successfully loaded secrets from environment variables")
         return secrets_config
             
-    except SecretsNotAvailableException:
-        # Re-raise our custom exception
-        raise
     except Exception as e:
         error_msg = f"Unexpected error loading secrets: {e}"
         logger.error(f"Secrets loading failed: {error_msg}")
@@ -336,7 +321,7 @@ def get_project_id() -> str:
     - Never returns None or empty string
     - Never suppresses exceptions inappropriately
     - Enforces explicit cloud-enabled checking
-    - Tries host.json first, falls back to cloud detection if needed
+    - Uses CLOUD_PROJECT_ID environment variable
     
     Returns:
         GCP project ID string (never None/empty)
@@ -351,16 +336,11 @@ def get_project_id() -> str:
         logger.error(f"Project ID access failed: {error_msg}")
         raise CloudConfigurationException(error_msg)
     
-    # Try to get project ID from host.json first
-    try:
-        host_config = _get_host()
-        if host_config and 'project_id' in host_config:
-            project_id = host_config['project_id']
-            if project_id and project_id.strip():
-                logger.debug(f"Got project ID from host.json: {project_id}")
-                return project_id.strip()
-    except Exception as e:
-        logger.debug(f"Could not get project ID from host.json: {e}")
+    # Try to get project ID from CLOUD_PROJECT_ID environment variable
+    project_id = os.environ.get('CLOUD_PROJECT_ID')
+    if project_id and project_id.strip():
+        logger.debug(f"Got project ID from CLOUD_PROJECT_ID environment variable: {project_id}")
+        return project_id.strip()
     
     # Fall back to cloud detection
     try:
@@ -435,9 +415,9 @@ def is_cloud_enabled() -> bool:
     Determine if cloud services (project ID, Firestore, etc.) are enabled.
     
     Logic:
-    - Check if host.json exists in the current environment's settings directory
-    - If host.json exists and has project_id → cloud enabled
-    - If no host.json or no project_id → cloud disabled
+    - Check if CLOUD_PROJECT_ID environment variable is set
+    - If CLOUD_PROJECT_ID is set and not empty → cloud enabled
+    - If no CLOUD_PROJECT_ID → cloud disabled
     
     PRINCIPLES ENFORCED:
     - Never suppresses exceptions inappropriately
@@ -446,107 +426,43 @@ def is_cloud_enabled() -> bool:
     
     Returns:
         True if cloud services are available, False for unit testing/local-only mode
-        
-    Raises:
-        CloudConfigurationException: If host.json exists but is invalid JSON
     """
-    try:
-        host_config = _get_host()
-        if host_config and 'project_id' in host_config:
-            project_id = host_config.get('project_id')
-            if project_id and project_id.strip():
-                logger.debug("Cloud enabled: project_id found in host.json")
-                return True
-    except CloudConfigurationException:
-        # Re-raise configuration errors
-        raise
-    except Exception as e:
-        logger.debug(f"Cloud disabled: could not load host configuration: {e}")
-        return False
+    project_id = os.environ.get('CLOUD_PROJECT_ID')
+    if project_id and project_id.strip():
+        logger.debug(f"Cloud enabled: CLOUD_PROJECT_ID environment variable set: {project_id}")
+        return True
     
-    logger.debug("Cloud disabled: no project_id in host.json or host.json not found")
+    logger.debug("Cloud disabled: CLOUD_PROJECT_ID environment variable not set")
     return False
 
 
-def _get_host() -> Optional[Dict[str, Any]]:
-    """Get host configuration from cached config or settings directory.
-    
-    Returns:
-        Host configuration dictionary, or None if not available
-        
-    Raises:
-        CloudConfigurationException: If host.json exists but is invalid JSON, or if cached config has no required fields
-    """
-    global _host_config
-    
-    # Return cached instance if already loaded
-    if _host_config is not None:
-        # Check if cached config has required fields
-        if not _host_config.get('project_id') and not _host_config.get('api_url'):
-            error_msg = "Cached host configuration has no project_id or api_url - environment is not cloud-enabled"
-            logger.error(f"Host configuration error: {error_msg}")
-            raise CloudConfigurationException(error_msg)
-        return _host_config
-    
-    # Get settings folder path using new helper
-    try:
-        settings_path = _get_settings_folder_path()
-    except (SecurityException, ConfigurationException) as e:
-        logger.debug(f"Could not get settings folder path: {e}")
-        return None
-    
-    host_file = settings_path / 'host.json'
-    if not host_file.exists():
-        logger.debug(f"No host.json found at {host_file}")
-        return None
-    
-    try:
-        with open(host_file, 'r') as f:
-            host_config = json.load(f)
-        logger.debug(f"Successfully loaded host configuration from {host_file}")
-        return host_config
-    except json.JSONDecodeError as e:
-        error_msg = f"Invalid JSON in {host_file}: {e}"
-        logger.error(f"Host configuration error: {error_msg}")
-        raise CloudConfigurationException(error_msg)
-    except Exception as e:
-        error_msg = f"Failed to read {host_file}: {e}"
-        logger.error(f"Host configuration error: {error_msg}")
-        raise CloudConfigurationException(error_msg)
-
-
 def get_providers() -> Dict[str, Any]:
-    """Get provider configuration from providers.json.
+    """Get provider configuration from environment variables.
     
-    This function loads provider configuration from the current environment's settings directory.
+    This function gets provider configuration from environment variables using the provider manager.
     
     Returns:
         Provider configuration dictionary
         
     Raises:
-        FileNotFoundError: If providers.json not found
-        json.JSONDecodeError: If providers.json is invalid JSON
+        ProviderConfigurationError: If provider configuration cannot be determined
     """
     try:
-        # Get settings folder path using new helper
-        settings_path = _get_settings_folder_path()
+        from .providers import get_provider_config
+        provider_config = get_provider_config()
         
-        providers_file = settings_path / 'providers.json'
-        if not providers_file.exists():
-            error_msg = f"Providers file not found: {providers_file}"
-            logger.error(f"Provider loading failed: {error_msg}")
-            raise FileNotFoundError(error_msg)
+        # Convert to dictionary format for backward compatibility
+        providers_config = {
+            'auth_provider': provider_config.auth_provider,
+            'data_provider': provider_config.data_provider,
+            'ai_provider': provider_config.ai_provider
+        }
         
-        with open(providers_file, 'r') as f:
-            providers_config = json.load(f)
-        
-        logger.debug(f"Loaded provider configuration from: {providers_file}")
+        logger.debug("Loaded provider configuration from environment variables")
         return providers_config
         
-    except (FileNotFoundError, json.JSONDecodeError):
-        raise
     except Exception as e:
-        error_msg = f"Unexpected error loading provider configuration: {e}"
+        error_msg = f"Failed to get provider configuration: {e}"
         logger.error(f"Provider loading failed: {error_msg}")
         raise
 
@@ -563,23 +479,24 @@ def is_cloud_run() -> bool:
 
 def _get_config_env() -> str:
     """
-    Get the current configuration environment name with security validation.
+    Get the configuration environment name with validation.
     
     PRINCIPLES ENFORCED:
     - Never returns None or empty string
     - Always throws strongly-typed exceptions on failure
-    - Uses --config-env argument if set, otherwise fails
-    - Validates environment name for security (no path traversal, valid characters)
+    - Uses proper error logging at appropriate levels
+    - Never suppresses exceptions inappropriately
+    - Validates environment name for security
     
     Returns:
-        Configuration environment name string (never None/empty)
+        Environment name string (never None/empty)
         
     Raises:
-        ValueError: If no config environment specified via --config-env argument
+        ValueError: If no config environment is specified
         SecurityException: If environment name contains invalid characters or path traversal attempts
     """
     if not _config_env:
-        error_msg = "No config environment specified. Use --config-env argument"
+        error_msg = "No config environment specified. Environment variables must be provided by task runners."
         logger.error(f"Configuration environment detection failed: {error_msg}")
         raise ValueError(error_msg)
     
@@ -611,68 +528,3 @@ def _get_config_env() -> str:
         raise SecurityException(error_msg)
     
     return env_name
-
-
-def _get_settings_folder_path() -> Path:
-    """
-    Get the settings folder path for the current environment.
-    
-    PRINCIPLES ENFORCED:
-    - Never returns None or empty path
-    - Always throws strongly-typed exceptions on failure
-    - Uses _get_config_env() for environment name
-    - Validates path exists and is a directory
-    - No defaults, no fallbacks
-    
-    Returns:
-        Path to settings folder (never None/empty)
-        
-    Raises:
-        SecurityException: If environment name fails security validation
-        ConfigurationException: If settings folder doesn't exist or is invalid
-    """
-    env_name = _get_config_env()
-    repo_root = Path.cwd()
-    settings_path = repo_root / 'config' / 'settings' / env_name
-    
-    if not settings_path.exists():
-        error_msg = f"Settings folder not found: {settings_path}"
-        logger.error(f"Settings folder path resolution failed: {error_msg}")
-        raise ConfigurationException(error_msg)
-    
-    if not settings_path.is_dir():
-        error_msg = f"Settings path is not a directory: {settings_path}"
-        logger.error(f"Settings folder path resolution failed: {error_msg}")
-        raise ConfigurationException(error_msg)
-    
-    return settings_path
-
-
-def _get_secrets_file_path() -> Path:
-    """
-    Get the secrets file path for the current environment.
-    
-    PRINCIPLES ENFORCED:
-    - Never returns None or empty path
-    - Always throws strongly-typed exceptions on failure
-    - Uses _get_config_env() for environment name
-    - Validates file exists and is readable
-    - No defaults, no fallbacks
-    
-    Returns:
-        Path to secrets.json file (never None/empty)
-        
-    Raises:
-        SecurityException: If environment name fails security validation
-        ConfigurationException: If secrets file doesn't exist or is invalid
-    """
-    env_name = _get_config_env()
-    repo_root = Path.cwd()
-    secrets_path = repo_root / 'config' / 'secrets' / env_name / 'secrets.json'
-    
-    if not secrets_path.exists():
-        error_msg = f"Secrets file not found: {secrets_path}"
-        logger.error(f"Secrets file path resolution failed: {error_msg}")
-        raise ConfigurationException(error_msg)
-    
-    return secrets_path

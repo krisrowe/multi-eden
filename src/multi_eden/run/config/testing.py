@@ -40,6 +40,7 @@ class TestModeConfig:
     """Test mode configuration"""
     mode: str
     description: Optional[str]
+    in_memory_api: bool
     default_env: str
     tests: Optional[Dict[str, Any]] = None
     
@@ -232,6 +233,7 @@ def _load_test_mode_config(mode_name: str, config_data: Dict[str, Any]) -> TestM
     
     # Validate required fields
     required_fields = [
+        'in-memory-api',
         'default-env'
     ]
     
@@ -245,6 +247,7 @@ def _load_test_mode_config(mode_name: str, config_data: Dict[str, Any]) -> TestM
     return TestModeConfig(
         mode=mode_name,
         description=mode_config.get('description'),
+        in_memory_api=mode_config['in-memory-api'],
         default_env=mode_config['default-env'],
         tests=mode_config.get('tests')
     )
@@ -268,10 +271,10 @@ def is_mode_available() -> bool:
 
 def get_api_url() -> str:
     """
-    Get the API URL from the current environment's host configuration.
+    Get the API URL from environment variable or cloud services.
     
     This function:
-    1. First tries to get api_url from host.json
+    1. First tries to get API_TESTING_URL from environment variable
     2. If not available, checks if cloud is enabled and gets project_id
     3. Uses Google Cloud libraries to retrieve Cloud Run service URL
     4. Caches the result to avoid repeated network I/O
@@ -282,58 +285,49 @@ def get_api_url() -> str:
     - Uses proper error logging at appropriate levels
     
     Returns:
-        API URL string from host configuration or Cloud Run service
+        API URL string from environment variable or Cloud Run service
         
     Raises:
-        APIConfigurationException: If no API URL can be determined from configuration or cloud services
+        APIConfigurationException: If no API URL can be determined from environment or cloud services
     """
     # Check cache first
     if hasattr(get_api_url, '_cached_url'):
         return get_api_url._cached_url
     
-    try:
-        # First try to get api_url from host config
-        from .settings import _get_host
-        host_config = _get_host()
+    # First try to get API_TESTING_URL from environment variable
+    api_url = os.environ.get('API_TESTING_URL')
+    if api_url and api_url.strip():
+        # Cache the result
+        get_api_url._cached_url = api_url.strip()
+        return get_api_url._cached_url
+    
+    # If no API_TESTING_URL, check if cloud is enabled
+    from .settings import is_cloud_enabled
+    if is_cloud_enabled():
+        # Safely get project ID
+        from .settings import get_project_id
+        project_id = get_project_id()
         
-        if host_config and 'api_url' in host_config:
-            api_url = host_config['api_url']
+        # Use Google Cloud libraries to get Cloud Run service URL
+        try:
+            from google.cloud import run_v2
+            client = run_v2.ServicesClient()
+            
+            # Get the Cloud Run service URL using configurable app ID
+            from .settings import get_app_id
+            app_id = get_app_id()
+            service_name = f"projects/{project_id}/locations/us-central1/services/{app_id}-api"
+            service = client.get_service(name=service_name)
+            api_url = service.uri
+            
             # Cache the result
             get_api_url._cached_url = api_url
             return api_url
-        
-        # If no api_url, check if cloud is enabled
-        from .settings import is_cloud_enabled
-        if is_cloud_enabled():
-            # Safely get project ID
-            from .settings import get_project_id
-            project_id = get_project_id()
             
-            # Use Google Cloud libraries to get Cloud Run service URL
-            try:
-                from google.cloud import run_v2
-                client = run_v2.ServicesClient()
-                
-                # Get the Cloud Run service URL using configurable app ID
-                from .settings import get_app_id
-                app_id = get_app_id()
-                service_name = f"projects/{project_id}/locations/us-central1/services/{app_id}-api"
-                service = client.get_service(name=service_name)
-                api_url = service.uri
-                
-                # Cache the result
-                get_api_url._cached_url = api_url
-                return api_url
-                
-            except Exception as e:
-                error_msg = f"Failed to get Cloud Run service URL: {e}"
-                logger.error(error_msg)
-                raise APIConfigurationException(error_msg)
-        
-        # If we get here, we have no way to determine the API URL
-        raise APIConfigurationException("No api_url in host config and cloud services not available")
-        
-    except Exception as e:
-        error_msg = f"Failed to get API URL: {e}"
-        logger.error(error_msg)
-        raise APIConfigurationException(error_msg)
+        except Exception as e:
+            error_msg = f"Failed to get Cloud Run service URL: {e}"
+            logger.error(error_msg)
+            raise APIConfigurationException(error_msg)
+    
+    # If we get here, we have no way to determine the API URL
+    raise APIConfigurationException("No API_TESTING_URL environment variable set and cloud services not available")

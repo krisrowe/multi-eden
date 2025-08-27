@@ -11,6 +11,7 @@ from invoke import task
 from typing import Optional
 
 from multi_eden.run.auth.util import gen_jwt_key
+from multi_eden.build.config.secrets import SecretsConfig, Authorization
 
 
 class CreateConfigEnvError(Exception):

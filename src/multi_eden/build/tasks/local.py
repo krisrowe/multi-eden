@@ -250,6 +250,15 @@ def api_start(ctx, port=8000, env="local-server", background=True):
             print(f"❌ Virtual environment not found at {venv_python}")
             return False
         
+        # Load environment configuration
+        try:
+            from multi_eden.build.config.env import load_env
+            load_env(env)
+            print(f"🔧 Loaded configuration from {env} environment")
+        except Exception as e:
+            print(f"⚠️  Could not load configuration for environment '{env}': {e}")
+            print(f"⚠️  Continuing with default environment variables")
+        
         # Set environment variables
         env_vars = os.environ.copy()
         env_vars["PYTHONPATH"] = str(repo_root / "core")

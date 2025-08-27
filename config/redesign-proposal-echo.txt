@@ -1,0 +1,30 @@
+
+{repo-root}/config/secrets/test.properties
+---------BOF---------
+jwt-secret-key=asdf1asdf
+google-api-key=asdf2asdf
+---------EOF---------
+
+{repo-root}/config/secrets/prod.properties
+---------BOF---------
+jwt-secret-key=asdf3asdf
+google-api-key=asdf4asdf
+---------EOF---------
+
+ls {repo-root}/config/settings
+- dev.json
+- local-server.json
+- local-docker.json
+
+dev.json
+---------BOF---------
+{
+    "host": {
+        project-id": "..."
+    },
+    "secrets":
+        "jwt-secret-key": "secrets://test/jwt-secret-key",
+        "google-api-key": "secrets://test/google-api-key"
+    }
+}
+---------EOF---------
