@@ -1,0 +1,75 @@
+#!/bin/bash
+# Auto-activate virtual environment and run invoke commands
+# This script ensures the virtual environment is active and dependencies are installed before running any invoke tasks
+
+set -e  # Exit on any error
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Change to the script directory (repo root)
+cd "$SCRIPT_DIR"
+
+# Function to create and set up virtual environment
+setup_venv() {
+    echo "🔧 Virtual environment not found. Setting up..."
+    
+    # Check if Python 3 is available
+    if ! command -v python3 &> /dev/null; then
+        echo "❌ Python 3 is not installed or not in PATH"
+        exit 1
+    fi
+    
+    # Create virtual environment
+    echo "🐍 Creating virtual environment..."
+    python3 -m venv venv
+    
+    # Activate virtual environment
+    echo "🔧 Activating virtual environment..."
+    source venv/bin/activate
+    
+    # Upgrade pip
+    echo "📦 Upgrading pip..."
+    pip install --upgrade pip
+    
+    # Install requirements
+    if [ -f "requirements.txt" ]; then
+        echo "📦 Installing Python dependencies from requirements.txt..."
+        pip install -r requirements.txt
+    fi
+    
+    # Install dev requirements if they exist
+    if [ -f "requirements-dev.txt" ]; then
+        echo "📦 Installing development dependencies from requirements-dev.txt..."
+        pip install -r requirements-dev.txt
+    fi
+    
+    # Install multi-eden in development mode if it exists
+    if [ -d "multi-eden" ]; then
+        echo "📦 Installing multi-eden in development mode..."
+        pip install -e multi-eden/
+    fi
+    
+    echo "✅ Virtual environment setup complete!"
+}
+
+# Check if virtual environment exists
+if [ ! -d "venv" ]; then
+    setup_venv
+else
+    # Activate existing virtual environment
+    echo "🔧 Activating existing virtual environment..."
+    source venv/bin/activate
+fi
+
+# Verify activation
+if [ -z "$VIRTUAL_ENV" ]; then
+    echo "❌ Failed to activate virtual environment"
+    exit 1
+fi
+
+echo "✅ Virtual environment activated: $VIRTUAL_ENV"
+
+# Run the invoke command with all arguments passed through
+echo "🚀 Running: invoke $*"
+exec invoke "$@"
