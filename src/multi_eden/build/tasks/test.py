@@ -12,6 +12,7 @@ from invoke import task
 from multi_eden.build.tasks.config.setup import get_task_default_env
 from multi_eden.build.tasks.config.decorators import requires_config_env
 import os
+import logging
 
 
 def get_suite_default_env(suite):
@@ -147,9 +148,21 @@ def run_pytest(suite, config_env, verbose, test_name=None):
         cmd.extend(["-k", test_name])
         print(f"🎯 Filtering tests by name: {test_name}")
     
-    # Add test paths
+    # Add test paths (filter out non-existent ones)
+    logger = logging.getLogger(__name__)
+    valid_test_paths = []
     for path in test_paths:
-        cmd.append(f"tests/{path}")
+        test_path = Path.cwd() / "tests" / path
+        if test_path.exists():
+            valid_test_paths.append(f"tests/{path}")
+        else:
+            logger.debug(f"Test path not found, skipping: tests/{path}")
+    
+    if not valid_test_paths:
+        print(f"❌ No valid test paths found for suite '{suite}'")
+        return None
+    
+    cmd.extend(valid_test_paths)
     
     print(f"🔍 Including pytest {' '.join(cmd[4:])}")
     
