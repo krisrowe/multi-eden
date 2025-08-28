@@ -44,10 +44,10 @@ setup_venv() {
         pip install -r requirements-dev.txt
     fi
     
-    # Install multi-eden in development mode if it exists
-    if [ -d "multi-eden" ]; then
-        echo "📦 Installing multi-eden in development mode..."
-        pip install -e multi-eden/
+    # Install current package in development mode
+    if [ -f "setup.py" ]; then
+        echo "📦 Installing current package in development mode..."
+        pip install -e .
     fi
     
     echo "✅ Virtual environment setup complete!"
