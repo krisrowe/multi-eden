@@ -76,26 +76,33 @@ def check_build_config():
 
 
 def get_build_config():
-    """Read build configuration from app.yaml and .config-project."""
+    """Read build configuration from app.yaml and environments.yaml."""
     app_config_path, project_config_path = check_build_config()
     
-    # Read app ID from config/app.yaml
+    # Read app configuration from config/app.yaml
     import yaml
     with open(app_config_path) as f:
         app_config = yaml.safe_load(f)
-        image_name = app_config.get('id')
+        app_id = app_config.get('id')
+        registry_config = app_config.get('registry', {})
     
-    # Read project ID from .config-project
-    with open(project_config_path) as f:
-        project_id = f.read().strip()
+    if not app_id:
+        raise RuntimeError("❌ app id not found in config/app.yaml")
     
-    if not project_id:
-        raise RuntimeError("❌ project_id not found in .config-project")
+    # Get registry project ID and image tag from app.yaml
+    registry_project_id = registry_config.get('project_id')
+    image_tag = registry_config.get('tag', app_id)  # Default to app_id
     
-    if not image_name:
-        raise RuntimeError("❌ image_name not found in config/app.yaml")
+    if not registry_project_id:
+        # Fallback to .config-project for backward compatibility
+        if project_config_path.exists():
+            with open(project_config_path) as f:
+                registry_project_id = f.read().strip()
+        
+        if not registry_project_id:
+            raise RuntimeError("❌ registry.project_id not found in config/app.yaml")
     
-    return project_id, image_name
+    return registry_project_id, image_tag
 
 
 def check_existing_tag():

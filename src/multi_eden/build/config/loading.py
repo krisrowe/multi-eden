@@ -24,40 +24,59 @@ def load_env(env_name: str, repo_root=None) -> None:
     from pathlib import Path
     from ...run.config.unified_settings import get_environment_settings
     
-    print(f"🔧 Loading environment configuration for: {env_name}")
+    logger.debug(f"Loading environment configuration for: {env_name}")
     
     try:
         # Get unified environment settings
         settings = get_environment_settings(env_name)
+        
+        # Collect environment variables and their sources for table display
+        env_vars_info = []
         
         # Set environment variables from settings (skip special keys)
         for key, value in settings.items():
             if key in ['local', 'project_id']:  # Skip special keys
                 continue
             env_var = key.upper()
+            was_set = env_var in os.environ
             os.environ.setdefault(env_var, str(value))
-            print(f"   ✅ {env_var}={value}")
+            source = "Pre-existing" if was_set else "Test suite setting"
+            env_vars_info.append((env_var, str(value), source))
         
         # Handle project ID if set
         if settings.get('project_id'):
-            os.environ.setdefault('CLOUD_PROJECT_ID', settings['project_id'])
-            print(f"   ✅ Project ID set: {settings['project_id']}")
-        else:
+            was_set = 'PROJECT_ID' in os.environ
+            os.environ.setdefault('PROJECT_ID', settings['project_id'])
+            source = "Pre-existing" if was_set else "Test suite setting"
+            env_vars_info.append(('PROJECT_ID', settings['project_id'], source))
+        
+        # Display environment variables table
+        if env_vars_info:
+            print("\n" + "=" * 65)
+            print("🔧 ENVIRONMENT VARIABLES")
+            print("=" * 65)
+            print(f"{'VARIABLE':<25} {'VALUE':<12} {'SOURCE':<20}")
+            print("-" * 65)
+            for env_var, value, source in env_vars_info:
+                # Truncate long values for display (max 12 chars)
+                display_value = value if len(value) <= 12 else value[:9] + "..."
+                print(f"{env_var:<25} {display_value:<12} {source:<20}")
+            print("=" * 65)
+        
+        if not settings.get('project_id'):
             print(f"   ✅ No project ID - using local configuration")
         
         # Set up secrets environment
         _setup_secrets_environment(settings, env_name)
         
         if settings.get('project_id'):
-            print(f"   ✅ Secrets loaded from Secret Manager")
+            pass  # Secrets loaded from Secret Manager
         elif settings.get('local'):
-            print(f"   ✅ Local default secrets configured for testing")
+            pass  # Local default secrets configured for testing
         else:
-            print(f"   ✅ No secrets configured (none required)")
+            pass  # No secrets configured (none required)
         
         # Authorization is now handled through allowed-user-emails secret
-        
-        print(f"🔧 Environment configuration loading complete")
         
     except Exception as e:
         print(f"   ❌ Failed to load environment configuration: {e}")
@@ -71,20 +90,20 @@ def _setup_secrets_environment(settings: Dict[str, Any], config_env: str) -> Non
     for secret in secrets_manifest:
         # Check if secret is required for current settings
         if not _is_secret_required(secret, settings):
-            logger.debug(f"Skipping {secret.name} - not required for current settings")
+            pass  # Skipping secret - not required for current settings
             continue
             
         # Skip secrets without local default when API is out-of-process
         api_in_memory = settings.get('api_in_memory', True)
         if not secret.local_default and not api_in_memory:
-            logger.debug(f"Skipping {secret.name} - no local default and API is out-of-process")
+            pass  # Skipping secret - no local default and API is out-of-process
             continue
             
         # Set up the environment variable
         try:
             _setup_secret_env_var(secret, settings, config_env)
         except Exception as e:
-            logger.error(f"Failed to setup secret {secret.name}: {e}")
+            print(f"❌ Failed to setup secret {secret.name}: {e}")
             raise
 
 
@@ -92,7 +111,7 @@ def _setup_secret_env_var(secret_def, settings: Dict[str, Any], config_env: str)
     """Set up environment variable for a specific secret."""
     # Skip if already set
     if os.getenv(secret_def.env_var):
-        logger.debug(f"Environment variable {secret_def.env_var} already set")
+        pass  # Environment variable already set
         return
     
     project_id = settings.get('project_id')
@@ -104,7 +123,7 @@ def _setup_secret_env_var(secret_def, settings: Dict[str, Any], config_env: str)
         if not value:
             raise RuntimeError(f"Secret '{secret_def.name}' not found in Secret Manager for project '{project_id}'")
         os.environ[secret_def.env_var] = value
-        logger.info(f"Loaded {secret_def.name} from Secret Manager")
+        pass  # Loaded secret from Secret Manager
         return
     
     # Priority 2: local default (only if local: true AND local_default exists)
@@ -115,7 +134,7 @@ def _setup_secret_env_var(secret_def, settings: Dict[str, Any], config_env: str)
             )
         value = _expand_local_default(secret_def.local_default, config_env)
         os.environ[secret_def.env_var] = value
-        logger.info(f"Set {secret_def.name} from local default (local: true)")
+        pass  # Set secret from local default
         return
     
     # No valid configuration - always fail
@@ -149,18 +168,18 @@ def _get_secret_from_manager(project_id: str, secret_name: str) -> Optional[str]
         client = secretmanager.SecretManagerServiceClient()
         secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
         
-        logger.debug(f"Fetching secret from Secret Manager: {secret_path}")
+        pass  # Fetching secret from Secret Manager
         response = client.access_secret_version(request={"name": secret_path})
         
         secret_value = response.payload.data.decode("UTF-8")
-        logger.info(f"Successfully retrieved secret '{secret_name}' from Secret Manager")
+        pass  # Successfully retrieved secret from Secret Manager
         return secret_value
         
     except ImportError:
-        logger.warning("Google Cloud Secret Manager library not available")
+        pass  # Google Cloud Secret Manager library not available
         return None
     except Exception as e:
-        logger.error(f"Failed to retrieve secret '{secret_name}' from Secret Manager: {e}")
+        print(f"❌ Failed to retrieve secret '{secret_name}' from Secret Manager: {e}")
         raise RuntimeError(f"Secret Manager access failed: {e}")
 
 
@@ -199,5 +218,5 @@ def _get_app_id() -> str:
         return app_id
         
     except Exception as e:
-        logger.warning(f"Could not load app ID from app.yaml: {e}")
+        # Silently fallback to generic app ID
         return 'multi-eden-app'

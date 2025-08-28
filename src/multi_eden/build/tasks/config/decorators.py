@@ -69,6 +69,19 @@ def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict,
     print("="*50)
     print(f"Using: \033[1;36m{env_name}\033[0m")  # Bright cyan color
     print(f"Selection method: {selection_method}")
+    
+    # Add test paths if available (for test tasks)
+    if args and len(args) > 0:
+        suite = args[0]  # First argument is typically the suite for test tasks
+        try:
+            from multi_eden.build.tasks.test import get_test_paths_from_config
+            test_paths = get_test_paths_from_config(suite)
+            if test_paths:
+                colored_paths = [f"\033[1;36m{path}\033[0m" for path in test_paths]
+                print(f"Final test paths: {', '.join(colored_paths)}")
+        except Exception:
+            pass  # Not a test task or paths not available
+    
     if selection_method != "command line argument":
         print(f"💡 Override with: --config-env=<environment>")
     print("="*50)
@@ -77,7 +90,10 @@ def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict,
     try:
         from multi_eden.run.config.settings import set_config_env
         set_config_env(env_name)
-        print(f"✅ Configuration environment '{env_name}' set successfully")
+        # Configuration environment set successfully (moved to debug logging)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Configuration environment '{env_name}' set successfully")
     except Exception as e:
         error_msg = f"Failed to set configuration environment '{env_name}': {e}"
         print(f"❌ {error_msg}")

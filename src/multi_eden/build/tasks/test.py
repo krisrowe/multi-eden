@@ -14,6 +14,8 @@ from multi_eden.build.tasks.config.decorators import requires_config_env
 import os
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 def get_suite_default_env(suite):
     """
@@ -57,9 +59,10 @@ def should_omit_integration_tests(suite):
     'suite': 'Test suite to run (unit, ai, firestore, api)',
     'config_env': 'Configuration environment to use (overrides suite default)',
     'verbose': 'Enable verbose output',
-    'test_name': 'Filter to specific test method(s) (e.g., "test_long_name_product" or "test_*")'
+    'test_name': 'Filter to specific test method(s) (e.g., "test_long_name_product" or "test_*")',
+    'show_config': 'Show detailed configuration including partial secret values'
 })
-def test(ctx, suite, config_env=None, verbose=False, test_name=None):
+def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config=False):
     """
     Run tests for a specific suite.
     
@@ -85,11 +88,10 @@ def test(ctx, suite, config_env=None, verbose=False, test_name=None):
     
     resolved_env = resolve_config_env(config_env, (suite,), {'verbose': verbose}, 'test', get_suite_env_callback)
     
-    print(f"🧪 Running {suite} tests...")
-    return run_pytest(suite, resolved_env, verbose, test_name)
+    return run_pytest(suite, resolved_env, verbose, test_name, show_config)
 
 
-def run_pytest(suite, config_env, verbose, test_name=None):
+def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
     """
     Run pytest with the specified suite and environment.
     
@@ -98,6 +100,7 @@ def run_pytest(suite, config_env, verbose, test_name=None):
         config_env: Configuration environment (optional)
         verbose: Whether to enable verbose output
         test_name: Optional test name filter (e.g., "test_long_name_product")
+        show_config: Whether to show detailed configuration including secrets
         
     Returns:
         subprocess.CompletedProcess: Result of pytest execution
@@ -108,14 +111,25 @@ def run_pytest(suite, config_env, verbose, test_name=None):
         print(f"⚠️  No test paths configured for suite '{suite}'")
         return None
     
+    # Test paths and override message are now shown in configuration environment table
+    
     # Load environment configuration
     if config_env:
         try:
             from multi_eden.build.secrets import load_env
             load_env(config_env)
-            print(f"🔧 Loaded configuration from {config_env} environment")
+            # Environment loaded successfully
+            
+            # Show detailed configuration if requested (after loading environment)
+            if show_config:
+                _show_secrets_configuration(config_env)
+                print("📊 Configuration display complete. Exiting without running tests.")
+                return None
+                
         except Exception as e:
             print(f"⚠️  Could not load configuration for environment '{config_env}': {e}")
+            if show_config:
+                return None
     
     # Use current environment variables (set by load_env)
     env_vars = os.environ.copy()
@@ -218,11 +232,9 @@ def get_test_paths_from_config(suite):
                 # If providers is already in the list but not first, move it to first
                 test_paths.remove('providers')
                 test_paths.insert(0, 'providers')
-                print(f"📋 Moved providers path to FIRST position")
+                pass  # Providers moved to first position
             else:
-                print(f"📋 Providers path already in FIRST position")
-        
-        print(f"📋 Final test paths: {test_paths}")
+                pass  # Providers already in first position
         return test_paths
     except Exception as e:
         print(f"⚠️  Could not load test configuration for suite '{suite}': {e}")
@@ -279,3 +291,75 @@ def pytest_config(ctx, suite, env=None):
             cmd.append(f"tests/{path}")
     
     print(f"🚀 Pytest command: {' '.join(cmd)}")
+
+
+def _show_secrets_configuration(config_env):
+    """
+    Display secrets configuration with partial values for debugging.
+    
+    Args:
+        config_env: Configuration environment name
+    """
+    print("\n" + "=" * 74)
+    print("🔐 SECRETS CONFIGURATION")
+    print("=" * 74)
+    
+    try:
+        # Load secrets manifest from YAML
+        from multi_eden.run.config.secrets import load_secrets_manifest
+        import os
+        
+        secrets_found = []
+        secrets_missing = []
+        
+        # Load the secrets definitions
+        secret_definitions = load_secrets_manifest()
+        
+        for secret_def in secret_definitions:
+            secret_name = secret_def.name
+            env_var_name = secret_def.env_var  # This is a property that converts name to ENV_VAR format
+            secret_value = os.environ.get(env_var_name)
+            
+            if secret_value:
+                # Show partial value (20-25% of characters)
+                partial_length = max(3, len(secret_value) // 4)  # 25% but at least 3 chars
+                if len(secret_value) <= 8:
+                    # For very short secrets, show first 3 chars
+                    partial_value = secret_value[:3] + "..."
+                else:
+                    # For longer secrets, show first portion + "..."
+                    partial_value = secret_value[:partial_length] + "..."
+                
+                secrets_found.append((secret_name, env_var_name, partial_value))
+            else:
+                secrets_missing.append((secret_name, env_var_name))
+        
+        # Combine all secrets into one table
+        all_secrets = []
+        
+        # Add configured secrets
+        for secret_name, env_var, partial_value in secrets_found:
+            all_secrets.append((secret_name, env_var, f"✅ {partial_value}"))
+        
+        # Add missing secrets
+        for secret_name, env_var in secrets_missing:
+            all_secrets.append((secret_name, env_var, "⚠️  Not set"))
+        
+        # Display unified secrets table
+        if all_secrets:
+            print(f"{'SECRET NAME':<20} {'ENV VARIABLE':<25} {'VALUE':<25}")
+            print("-" * 74)
+            for secret_name, env_var, status_value in all_secrets:
+                print(f"{secret_name:<20} {env_var:<25} {status_value:<25}")
+        
+        print("=" * 74)
+        print(f"📊 Environment: {config_env}")
+        print(f"📊 Total secrets: {len(secrets_found)} configured, {len(secrets_missing)} missing")
+        print("=" * 74 + "\n")
+        
+    except ImportError as e:
+        print(f"⚠️  Could not load secrets manifest: {e}")
+        print("=" * 74 + "\n")
+    except Exception as e:
+        print(f"⚠️  Error displaying secrets configuration: {e}")
+        print("=" * 74 + "\n")

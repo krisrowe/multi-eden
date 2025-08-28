@@ -7,10 +7,10 @@ from invoke import Collection
 namespace = Collection()
 
 # Import and collect tasks from each submodule using Collection.from_module()
-from .build.tasks import test, build, deploy, docker, local, auth, config
+from .build.tasks import test, build, deploy, docker, local, auth, config, init_app
 
 # Add tasks from each submodule (flattened)
-for submodule in [build, deploy, docker, local, auth, config]:
+for submodule in [build, deploy, docker, local, auth, config, init_app]:
     submodule_collection = Collection.from_module(submodule)
     for task_name, task in submodule_collection.tasks.items():
         namespace.add_task(task)
