@@ -32,16 +32,15 @@ setup_venv() {
     echo "📦 Upgrading pip..."
     pip install --upgrade pip
     
-    # Install requirements
-    if [ -f "requirements.txt" ]; then
-        echo "📦 Installing Python dependencies from requirements.txt..."
-        pip install -r requirements.txt
-    fi
-    
-    # Install dev requirements if they exist
+    # Install requirements (prioritize dev requirements if available)
     if [ -f "requirements-dev.txt" ]; then
         echo "📦 Installing development dependencies from requirements-dev.txt..."
         pip install -r requirements-dev.txt
+    elif [ -f "requirements.txt" ]; then
+        echo "📦 Installing production dependencies from requirements.txt..."
+        pip install -r requirements.txt
+    else
+        echo "⚠️  No requirements files found"
     fi
     
     # Install current package in development mode

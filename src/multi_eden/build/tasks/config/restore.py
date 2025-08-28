@@ -55,10 +55,7 @@ def config_env_restore(
         
         # Determine project ID from .config-project file
         if project_id is None:
-            try:
-                from .util import get_project_id_from_config
-            except ImportError:
-                from util import get_project_id_from_config
+            from multi_eden.build.tasks.config.util import get_project_id_from_config
             project_id = get_project_id_from_config(cwd)
         
         if all:
@@ -69,13 +66,15 @@ def config_env_restore(
         print(f"🏗️  Project: {project_id}")
         
         # Find the config bucket using shared utility
-        try:
-            from .util import find_config_bucket
-        except ImportError:
-            from util import find_config_bucket
+        from multi_eden.build.tasks.config.util import find_config_bucket
         
         config_bucket = find_config_bucket(project_id)
         print(f"🎯 Found config bucket: {config_bucket}")
+        
+        # Ensure config directory exists
+        config_path = Path(config_dir)
+        config_path.mkdir(parents=True, exist_ok=True)
+        print(f"📁 Created config directory: {config_dir}")
         
         # Use gsutil rsync directly instead of terraform
         print(f"🔄 Starting smart sync from GCS bucket...")

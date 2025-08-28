@@ -20,10 +20,7 @@ def find_config_bucket(project_id: str) -> str:
     Raises:
         RuntimeError: If no bucket found or multiple buckets found
     """
-    try:
-        from ...internal import gcp
-    except ImportError:
-        from internal import gcp
+    from multi_eden.internal import gcp
     
     existing_config_buckets = gcp.find_config_buckets_by_label(
         project_id, CONFIG_BUCKET_LABEL_KEY, CONFIG_BUCKET_LABEL_VALUE

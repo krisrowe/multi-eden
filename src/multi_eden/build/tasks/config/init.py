@@ -71,10 +71,7 @@ def init_config(ctx, project_id: str = None, app_id: str = None, bucket_name: st
         AppYamlMismatchError: When existing app.yaml has different app_id
         AppYamlCreationError: When app.yaml creation/upload fails
     """
-    try:
-        from ...internal import gcp
-    except ImportError:
-        from internal import gcp
+    from multi_eden.internal import gcp
     import subprocess
     
     if not project_id:
