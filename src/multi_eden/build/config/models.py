@@ -73,7 +73,6 @@ class HostConfig:
     project_id: Optional[str] = None
     api_url: Optional[str] = None
     custom_domain: Optional[str] = None
-    firebase_config: Optional[Dict[str, Any]] = None
     
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> 'HostConfig':
@@ -81,6 +80,5 @@ class HostConfig:
         return cls(
             project_id=config.get('project_id'),
             api_url=config.get('api_url'),
-            custom_domain=config.get('custom_domain'),
-            firebase_config=config.get('firebase_config')
+            custom_domain=config.get('custom_domain')
         )
