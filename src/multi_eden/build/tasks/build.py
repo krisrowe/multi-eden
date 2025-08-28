@@ -166,12 +166,36 @@ def build(ctx, force=False, tag=None):
     try:
         print("🏗️  Starting smart incremental build pipeline...")
         
+        # Validate app structure and prepare for build
+        print("🔍 Validating app structure...")
+        from multi_eden.build.app_structure import (
+            validate_app_structure, generate_dockerfile_content, create_dockerignore_if_missing
+        )
+        
+        structure_info = validate_app_structure()
+        main_module = structure_info['main_module']['module_name']
+        print(f"✅ Detected main module: {main_module}")
+        
+        # Show recommendations if any
+        if structure_info['recommendations']:
+            print("💡 Recommendations:")
+            for rec in structure_info['recommendations']:
+                print(f"   • {rec}")
+        
+        # Generate Dockerfile content in memory (no file pollution)
+        print("📝 Generating Dockerfile content from SDK template...")
+        dockerfile_content = generate_dockerfile_content(main_module)
+        
+        # Create .dockerignore only if missing (helps with build efficiency)
+        if create_dockerignore_if_missing():
+            print("📝 Created .dockerignore from SDK template")
+        
         # Validate git state
         validate_git_state()
         
         # Load environment configuration for build
         try:
-            from multi_eden.build.config.env import load_env
+            from multi_eden.build.secrets import load_env
             # Use a default environment for build operations
             load_env("dev")  # Default to dev environment for builds
             print(f"🔧 Loaded build configuration from dev environment")
@@ -223,20 +247,32 @@ def build(ctx, force=False, tag=None):
                 # Create new timestamp tag
                 deploy_tag = create_timestamp_tag()
         
-        # Run Cloud Build
-        if run_cloud_build(project_id, image_name, deploy_tag):
-            print(f"📝 IMAGE_TAG for deployment: {deploy_tag}")
-            print("💡 Use this tag with: invoke deploy")
-            print("")
-            print("🎉 Build pipeline completed!")
-            print(f"📦 Image: gcr.io/{project_id}/{image_name}:{deploy_tag}")
-            print(f"🏷️  Tag: {deploy_tag}")
-            print("")
-            print("Next steps:")
-            print("  invoke deploy    # Deploy to Cloud Run")
-            print("  invoke status    # Check deployment status")
-            return True
-        else:
+        # Run Docker build with in-memory Dockerfile
+        print("🐳 Building Docker image...")
+        from multi_eden.build.docker_build import build_image_from_memory
+        
+        try:
+            if build_image_from_memory(
+                dockerfile_content=dockerfile_content,
+                image_name=image_name,
+                tag=deploy_tag,
+                project_id=project_id
+            ):
+                print(f"📝 IMAGE_TAG for deployment: {deploy_tag}")
+                print("💡 Use this tag with: invoke deploy")
+                print("")
+                print("🎉 Build pipeline completed!")
+                print(f"📦 Image: gcr.io/{project_id}/{image_name}:{deploy_tag}")
+                print(f"🏷️  Tag: {deploy_tag}")
+                print("")
+                print("Next steps:")
+                print("  invoke deploy    # Deploy to Cloud Run")
+                print("  invoke status    # Check deployment status")
+                return True
+            else:
+                return False
+        except Exception as build_error:
+            print(f"❌ Docker build failed: {build_error}")
             return False
             
     except Exception as e:

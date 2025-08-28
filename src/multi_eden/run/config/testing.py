@@ -99,18 +99,18 @@ def get_mode(mode_name: Optional[str] = None) -> TestModeConfig:
             mode_name = get_mode_name()
         
         # Load configuration data
-        # Load configuration data, preferring the repo root override
-        repo_root_config_path = Path.cwd() / 'tests.yaml'
-        sdk_default_config_path = Path(__file__).parent.parent.parent / 'config' / 'defaults' / 'tests.yaml'
+        # Load configuration data, preferring the app config override
+        app_config_path = Path.cwd() / 'config' / 'tests.yaml'
+        sdk_default_config_path = Path(__file__).parent.parent.parent / 'build' / 'config' / 'tests.yaml'
 
-        if repo_root_config_path.exists():
-            config_path = repo_root_config_path
-            logger.debug(f"Using repo root override for test config: {config_path}")
+        if app_config_path.exists():
+            config_path = app_config_path
+            logger.debug(f"Using app config override for test config: {config_path}")
         elif sdk_default_config_path.exists():
             config_path = sdk_default_config_path
             logger.debug(f"Using SDK default test config: {config_path}")
         else:
-            error_msg = f"Test configuration file not found. Looked for override at {repo_root_config_path} and default at {sdk_default_config_path}"
+            error_msg = f"Test configuration file not found. Looked for override at {app_config_path} and default at {sdk_default_config_path}"
             logger.error(f"Test mode loading failed: {error_msg}")
             raise TestModeConfigurationNotAvailable(error_msg)
         

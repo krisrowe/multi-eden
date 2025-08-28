@@ -1,7 +1,7 @@
 # Service Definitions
 services:
   meal_analysis:
-    default_model: 'gemini-2.5-flash-lite'
+    default_model: 'gemini-2.5-flash'
     prompt: |
       SYSTEM INSTRUCTIONS FOR FOOD ANALYSIS:
       Your task is to retrieve information about each food item identified in the end useer's meal description and structure the information in the format specified by the schema.
@@ -40,7 +40,7 @@ services:
       "{user_input}"
 
   meal_segmentation:
-    default_model: 'gemini-2.5-flash'
+    default_model: 'gemini-2.5-flash-lite'
     prompt: |
       Segment this meal description into individual food items: "{user_input}"
 

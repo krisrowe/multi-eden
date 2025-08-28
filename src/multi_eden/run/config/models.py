@@ -11,17 +11,36 @@ from typing import Dict, Any, List, Optional
 logger = logging.getLogger(__name__)
 
 def _load_model_config() -> dict:
-    """Load model configuration from models.yaml."""
+    """Load model configuration from models.yaml.
+    
+    Lookup order:
+    1. CWD/config/run/models.yaml (app-specific override)
+    2. SDK default: multi_eden/run/config/models.yaml
+    """
+    # Try app-specific location first
+    app_config_path = 'config/run/models.yaml'
+    if os.path.exists(app_config_path):
+        try:
+            with open(app_config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f) or {}
+                logger.debug(f"Loaded models config from {app_config_path}")
+                return config
+        except Exception as e:
+            logger.warning(f"Error loading {app_config_path}: {e}")
+    
+    # Fall back to SDK default
     try:
-        model_path = 'models.yaml'
-        if not os.path.exists(model_path):
-            return {}
-        
-        with open(model_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f) or {}
+        sdk_path = Path(__file__).parent / 'models.yaml'
+        if sdk_path.exists():
+            with open(sdk_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f) or {}
+                logger.debug(f"Loaded models config from SDK default: {sdk_path}")
+                return config
     except Exception as e:
-        logger.warning(f"Error loading models.yaml: {e}")
-        return {}
+        logger.warning(f"Error loading SDK default models.yaml: {e}")
+    
+    logger.warning("No models.yaml found in any search location")
+    return {}
 
 
 def get_models_list() -> list:

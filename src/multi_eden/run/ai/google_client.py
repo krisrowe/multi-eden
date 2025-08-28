@@ -2,21 +2,104 @@
 Google AI client for interacting with Google's AI models.
 """
 
+import logging
+import json
+from typing import Dict, Any, Optional, List, Callable
 from .base_client import ModelClient
-from typing import Any, Dict, List, Optional, Callable
+
+logger = logging.getLogger(__name__)
+
+# Suppress verbose logging from external libraries
+logging.getLogger("google_genai").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class GoogleClient(ModelClient):
     """Google AI client for interacting with Google's AI models."""
     
+    def __init__(self, model_name: str, service_name: str = None):
+        """
+        Initialize the Google AI client.
+        
+        Args:
+            model_name: Name of the Gemini model to use
+            service_name: Name of the service (e.g., 'meal_analysis', 'meal_segmentation')
+        """
+        super().__init__(service_name)
+        self.model_name = model_name
+        logger.debug(f"Initialized GoogleClient with model: {model_name}")
+        
+        # Initialize Gemini client
+        try:
+            from google import genai
+            self.client = genai.Client()
+            logger.debug("Successfully initialized Google GenAI client")
+        except ImportError:
+            logger.error("Google GenAI library not installed. Install with: pip install google-genai")
+            raise ImportError("Google GenAI library required for GoogleClient")
+        except Exception as e:
+            logger.error(f"Failed to initialize Google AI client: {e}")
+            raise
+    
     def _process_prompt(self, formatted_prompt: str, function_declarations: Optional[List[Dict[str, Any]]] = None,
                        callback: Optional[Callable] = None, **kwargs) -> Any:
-        """Process the formatted prompt using Google's AI models."""
-        # This would integrate with Google's AI API
-        # For now, just return a placeholder response
-        return {
-            "status": "success",
-            "message": "Google AI response (not implemented)",
-            "prompt": formatted_prompt
-        }
+        """
+        Process the formatted prompt using the real Gemini API.
+        
+        Args:
+            formatted_prompt: The prompt with user input injected into the template
+            function_declarations: Optional function declarations for structured output
+            callback: Optional callback function to process results
+            **kwargs: Additional arguments
+            
+        Returns:
+            The processed result from Gemini API
+        """
+        logger.debug(f"GoogleClient processing prompt: {formatted_prompt[:100]}...")
+        
+        try:
+            # Prepare the generation config
+            generation_config = {}
+            
+            # Handle structured output
+            if function_declarations:
+                # Use function declarations for structured output
+                generation_config["response_mime_type"] = "application/json"
+                generation_config["response_schema"] = function_declarations
+                logger.debug(f"Using function declarations for structured output: {len(function_declarations)} functions")
+            elif self.get_schema():
+                # Use stored schema for structured output
+                generation_config["response_mime_type"] = "application/json"
+                generation_config["response_schema"] = self.get_schema()
+                logger.debug(f"Using stored schema for structured output: {type(self.get_schema())}")
+            
+            # Make the API call
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=formatted_prompt,
+                config=generation_config
+            )
+            
+            logger.debug(f"Gemini API response received successfully")
+            
+            # Process the response
+            if hasattr(response, 'parsed') and response.parsed is not None:
+                # Return parsed structured output if available
+                result = response.parsed
+                logger.debug(f"Returning parsed structured output: {type(result)}")
+            else:
+                # Return text response
+                result = response.text
+                logger.debug(f"Returning text response: {len(result)} characters")
+            
+            # Apply callback if provided
+            if callback:
+                result = callback(result)
+                logger.debug("Applied callback to result")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Gemini API call failed: {e}")
+            raise RuntimeError(f"Failed to process prompt with Gemini API: {e}")
 

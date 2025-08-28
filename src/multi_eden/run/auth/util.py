@@ -17,7 +17,7 @@ import logging
 import firebase_admin
 from firebase_admin import auth, credentials
 
-from multi_eden.run.config import get_secrets, get_project_id, is_cloud_enabled, NotConfiguredForFirebaseException
+from multi_eden.run.config import get_project_id, is_cloud_enabled, NotConfiguredForFirebaseException, get_secret
 from .exceptions import AuthenticationError, AuthorizationError
 from . import NON_CLOUD_ENV_NAME, CUSTOM_AUTH_BASE_ISSUER
 
@@ -44,8 +44,8 @@ def compute_hash(value: str, length: int = 16) -> str:
     Returns:
         str: Hex digest of the specified length
     """
-    salt = get_secrets().salt
-    combined = f"{value}-{salt}"
+    jwt_key = get_secret('jwt-secret-key')
+    combined = f"{value}-{jwt_key}"
     return hashlib.sha256(combined.encode()).hexdigest()[:length]
 
 def compute_token_hash(token: str) -> str:
@@ -141,8 +141,8 @@ def gen_token_using_dates(email: str, issuer: str = None, expiration_datetime: d
         'exp': expiration_datetime
     }
     
-    salt = get_secrets().salt
-    return jwt.encode(payload, salt, algorithm="HS256")
+    jwt_key = get_secret('jwt-secret-key')
+    return jwt.encode(payload, jwt_key, algorithm="HS256")
 
 
 def gen_token(email: str, issuer: str = None, expiration_hours: int = 24):

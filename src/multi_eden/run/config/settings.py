@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 import yaml
-from .secrets import SecretsConfig
+from .secrets import Authorization, get_authorization_config, get_secret
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -71,8 +71,8 @@ except ImportError:
 # Global app config instance - initialized as None, loaded on demand (private)
 _app_config: Optional[SimpleAppConfig] = None
 
-# Global secrets instance - initialized as None, loaded on demand (private)
-_secrets: Optional[SecretsConfig] = None
+# Global authorization instance - initialized as None, loaded on demand (private)
+_authorization: Optional[Authorization] = None
 
 # Global host configuration instance - initialized as None, loaded on demand (private)
 _host_config: Optional[Dict[str, Any]] = None
@@ -184,18 +184,21 @@ def ensure_env_config_loaded() -> None:
     # Force load secrets (this will raise if config_env is not set
     # and cannot be set via command line argument)
     try:
-        secrets = get_secrets()
-        logger.debug("Secrets loaded successfully")
+        authorization = get_authorization()
+        logger.debug("Authorization loaded successfully")
     except Exception as e:
-        logger.error(f"Failed to load secrets: {e}")
+        logger.error(f"Failed to load authorization: {e}")
         raise ConfigurationException("Configuration environment not set. Environment variables must be provided by task runners.")
     
     # Verify key configuration values
-    if not secrets.salt or not secrets.salt.strip():
-        logger.error("Salt value is missing or empty")
-        raise ConfigurationException("Invalid configuration: salt value is missing or empty")
+    try:
+        jwt_key = get_secret('jwt-secret-key')
+        logger.debug("JWT key validation successful")
+    except RuntimeError as e:
+        logger.error(f"JWT key validation failed: {e}")
+        raise ConfigurationException(f"Invalid configuration: {e}")
     
-    logger.debug(f"Salt value verified: {secrets.salt[:8]}...")
+    logger.debug(f"JWT key verified: {jwt_key[:8]}...")
     
     # Check if custom auth is enabled (this will load provider settings)
     try:
@@ -216,20 +219,20 @@ def is_secrets_available() -> bool:
         True if secrets can be loaded successfully, False otherwise.
     """
     try:
-        get_secrets()
+        get_authorization()
         return True
     except Exception:
         return False
 
 
-def set_secrets(secrets_config: Optional[SecretsConfig]) -> None:
-    """Set the global secrets configuration.
+def set_authorization(authorization: Optional[Authorization]) -> None:
+    """Set the global authorization configuration.
     
     Args:
-        secrets_config: SecretsConfig instance to set as global, or None to clear.
+        authorization: Authorization instance to set as global, or None to clear.
     """
-    global _secrets
-    _secrets = secrets_config
+    global _authorization
+    _authorization = authorization
 
 
 def set_config_env(env_name: str) -> None:
@@ -238,77 +241,37 @@ def set_config_env(env_name: str) -> None:
     _config_env = env_name
 
 
-def get_secrets() -> SecretsConfig:
-    """Get secrets configuration from environment variables.
-    
-    This function is used at runtime when the app is running. The build package
-    (invoke tasks) loads secrets from secrets.json and injects them as environment
-    variables before starting the app.
-    
-    PRINCIPLES ENFORCED:
-    - Never returns None or invalid configurations
-    - Never falls back to defaults
-    - Always throws strongly-typed exceptions on failure
-    - Uses proper error logging at appropriate levels
-    - Never suppresses exceptions inappropriately
-    - Uses lazy loading with caching for performance
-    
-    Uses lazy loading with caching - loads from environment once, then returns cached instance.
+def get_authorization() -> Authorization:
+    """Get authorization configuration from environment variables.
     
     Returns:
-        SecretsConfig instance loaded from environment variables (never None).
+        Authorization instance loaded from environment variables.
         
     Raises:
         SecretsNotAvailableException: If required environment variables are missing
     """
-    global _secrets
+    global _authorization
     
     # Return cached instance if already loaded
-    if _secrets is not None:
-        return _secrets
+    if _authorization is not None:
+        return _authorization
     
     try:
-        # Get salt from environment variable
-        salt = os.environ.get('CUSTOM_AUTH_SALT')
-        if not salt:
-            error_msg = "CUSTOM_AUTH_SALT environment variable is required but not set"
-            logger.error(f"Secrets loading failed: {error_msg}")
-            raise SecretsNotAvailableException(error_msg)
+        # Use the new secrets system
+        authorization = get_authorization_config()
         
-        # Get authorization settings from environment variables
-        all_authenticated_users = os.environ.get('ALL_AUTHENTICATED_USERS', 'false').lower() in ('true', '1', 'yes', 'on')
-        
-        # Get allowed user emails from environment variable (comma-separated)
-        allowed_emails_str = os.environ.get('ALLOWED_USER_EMAILS', '')
-        if allowed_emails_str:
-            allowed_user_emails = [email.strip() for email in allowed_emails_str.split(',')]
-        else:
-            allowed_user_emails = []
-        
-        # Create authorization object
-        from .secrets import Authorization
-        authorization = Authorization(
-            all_authenticated_users=all_authenticated_users,
-            allowed_user_emails=allowed_user_emails
-        )
-        
-        # Create secrets config (note: google_api_key is no longer needed)
-        from .secrets import SecretsConfig
-        secrets_config = SecretsConfig(
-            salt=salt,
-            google_api_key="",  # No longer used, but required by SecretsConfig
-            authorization=authorization
-        )
-        
-        # Cache the loaded secrets for future calls
-        _secrets = secrets_config
-        logger.debug("Successfully loaded secrets from environment variables")
-        return secrets_config
+        # Cache the loaded authorization for future calls
+        _authorization = authorization
+        logger.debug("Successfully loaded authorization from environment variables")
+        return authorization
             
     except Exception as e:
-        error_msg = f"Unexpected error loading secrets: {e}"
-        logger.error(f"Secrets loading failed: {error_msg}")
+        error_msg = f"Unexpected error loading authorization: {e}"
+        logger.error(f"Authorization loading failed: {error_msg}")
         raise SecretsNotAvailableException(error_msg)
+
+
+
 
 
 def get_project_id() -> str:

@@ -13,7 +13,7 @@ from multi_eden.run.auth.testing import get_static_test_user_token
 from multi_eden.run.auth.util import gen_token, gen_token_using_dates
 from multi_eden.run.auth.validator import validate_token
 from multi_eden.run.auth.exceptions import AuthenticationError, TokenExpiredError, TokenSignatureError, TokenMalformedError, TokenIssuerError
-from multi_eden.run.config import get_secrets
+from multi_eden.run.config import get_secret
 
 
 class TestAuthentication:
@@ -61,12 +61,12 @@ class TestAuthentication:
         email = "valid-user@example.com"
         valid_token = gen_token(email)
         
-        # Get the salt for signature verification
-        salt = get_secrets().salt
+        # Get the JWT key for signature verification
+        jwt_key = get_secret('jwt-secret-key')
         
         # Verify the token signature is valid
         try:
-            decoded = jwt.decode(valid_token, salt, algorithms=["HS256"])
+            decoded = jwt.decode(valid_token, jwt_key, algorithms=["HS256"])
             assert decoded['email'] == email, "Decoded token should match original email"
             self.logger.info("   ✅ Token signature validation successful")
         except jwt.InvalidSignatureError:

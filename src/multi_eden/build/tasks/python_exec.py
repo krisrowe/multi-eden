@@ -80,7 +80,7 @@ def py(ctx, config_env=None, module=None, script=None, code=None, args=""):
         
         # Load environment configuration
         try:
-            from multi_eden.build.config.env import load_env
+            from multi_eden.build.secrets import load_env
             load_env(config_env)
             print(f"✅ Environment configuration loaded from {config_env}")
         except Exception as e:
@@ -201,7 +201,7 @@ def env(ctx, config_env=None):
         
         # Load environment configuration
         try:
-            from multi_eden.build.config.env import load_env
+            from multi_eden.build.secrets import load_env
             load_env(config_env)
             print(f"✅ Environment configuration loaded from {config_env}")
         except Exception as e:
@@ -210,15 +210,20 @@ def env(ctx, config_env=None):
         
         # Show key environment variables
         import os
+        from ..secrets import secrets_manifest
+        
+        # Get secret env vars from manifest instead of hardcoding
+        secret_env_vars = secrets_manifest.get_env_var_names()
         key_vars = [
-            'STUB_AI', 'STUB_DB', 'CUSTOM_AUTH_ENABLED', 'CUSTOM_AUTH_SALT',
-            'GEMINI_API_KEY', 'CLOUD_PROJECT_ID', 'API_URL', 'ALL_AUTHENTICATED_USERS'
-        ]
+            'STUB_AI', 'STUB_DB', 'CUSTOM_AUTH_ENABLED', 'CLOUD_PROJECT_ID', 
+            'API_URL'
+        ] + secret_env_vars
         
         print("\n📋 Key Environment Variables:")
         for var in key_vars:
             value = os.environ.get(var, 'NOT SET')
-            if var in ['CUSTOM_AUTH_SALT', 'GEMINI_API_KEY'] and value != 'NOT SET':
+            # Truncate secret values for display
+            if var in secret_env_vars and value != 'NOT SET':
                 value = f"{value[:8]}..." if len(value) > 8 else value
             print(f"   {var}: {value}")
         

@@ -15,14 +15,14 @@ modes:
     description: "Integration tests with real AI API calls"
     tests:
       paths: ["ai"]
-    default-env: "unit-testing"
+    default-env: "ai-testing"
     in-memory-api: true
     
-  firestore:
-    description: "Firestore tests with Firebase data provider"
+  db:
+    description: "Database tests with Firebase data provider"
     tests:
-      paths: ["firestore", "providers"]
-    default-env: "dev"
+      paths: ["db", "providers"]
+    default-env: "db-testing"
     in-memory-api: true
     
   api:

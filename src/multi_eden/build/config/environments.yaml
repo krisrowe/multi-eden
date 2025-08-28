@@ -1,0 +1,61 @@
+# Multi-Eden SDK Default Environment Templates
+# Contains generic environment configurations without app-specific data
+# Apps can override these in their config/env/settings.yaml
+
+environments:
+  # Unit testing - everything stubbed, in-memory
+  unit-testing:
+    api_in_memory: true
+    custom_auth_enabled: true
+    stub_ai: true      # ai_provider: "mocked"
+    stub_db: true      # data_provider: "tinydb" (in-memory)
+    local: true        # Allow local override secrets
+    
+  # AI testing - real AI, stubbed DB, in-memory
+  ai-testing:
+    api_in_memory: true
+    custom_auth_enabled: true
+    stub_ai: false     # ai_provider: "real"
+    stub_db: true      # data_provider: "tinydb" (in-memory)
+    local: true        # Allow local override secrets
+    
+  # DB testing - real DB, stubbed AI, in-memory
+  db-testing:
+    api_in_memory: true
+    custom_auth_enabled: true
+    stub_ai: true      # ai_provider: "mocked"
+    stub_db: false     # data_provider: "firestore" (real DB)
+    local: true        # Allow local override secrets
+    
+  # Local testing - out-of-process API (port determined by task: server=8000, docker=8001)
+  local:
+    api_in_memory: false
+    custom_auth_enabled: true
+    stub_ai: true
+    stub_db: true
+    local: true        # Allow local override secrets
+    
+  # Local with AI - out-of-process API + real AI (port determined by task)
+  local-ai:
+    api_in_memory: false
+    custom_auth_enabled: true
+    stub_ai: false     # ai_provider: "real"
+    stub_db: true      # data_provider: "tinydb"
+    local: true        # Allow local override secrets
+    
+  # Cloud environment templates (project_id must be set by app config)
+  # Development cloud environment
+  dev:
+    api_in_memory: false
+    custom_auth_enabled: true
+    stub_ai: false     # ai_provider: "real"
+    stub_db: false     # data_provider: "firestore"
+    # No local: true - requires project_id for Secret Manager
+    
+  # Production cloud environment
+  prod:
+    api_in_memory: false
+    custom_auth_enabled: true
+    stub_ai: false     # ai_provider: "real"
+    stub_db: false     # data_provider: "firestore"
+    # No local: true - requires project_id for Secret Manager

@@ -1,62 +1,157 @@
 """
-Runtime secrets configuration from environment variables.
+Secrets Management System
 
-This module provides runtime access to secrets via environment variables.
-For build/deploy operations that need to load from JSON files, use the build package.
+Provides centralized secrets management with support for:
+- Google Secret Manager (cloud environments)
+- Environment variables (local/testing)
+- Ephemeral secrets (unit testing)
 """
 import os
+import json
+import logging
+import secrets
+import string
 from dataclasses import dataclass
-from typing import List
+from typing import List, Dict, Any, Optional
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SecretDefinition:
+    """Definition of a secret and how to load it."""
+    name: str
+    local_default: Optional[str] = None  # Local testing value with {app-id} and {env} placeholder support
+    required_when: Optional[Dict[str, Any]] = None
+    
+    @property
+    def env_var(self) -> str:
+        """Derive environment variable name from secret name.
+        
+        Converts 'secret-name' to 'SECRET_NAME'
+        """
+        return self.name.replace('-', '_').upper()
 
 
 @dataclass
 class Authorization:
-    """Authorization configuration from environment variables."""
+    """Authorization configuration."""
     all_authenticated_users: bool
     allowed_user_emails: List[str]
 
 
-@dataclass
-class SecretsConfig:
-    """Runtime secrets configuration from environment variables.
+def load_secrets_manifest() -> List[SecretDefinition]:
+    """Load secrets configuration from YAML manifest."""
+    import yaml
+    from pathlib import Path
     
-    Contains all secrets loaded from environment variables.
-    This is separate from the build package that loads from JSON files.
-    """
-    salt: str
-    google_api_key: str  # Kept for backward compatibility but not used
-    authorization: Authorization
+    # Load from build package - build pkg knows structure, not specific names
+    manifest_path = Path(__file__).parent.parent.parent / 'build' / 'config' / 'secrets.yaml'
     
-    @classmethod
-    def from_environment(cls) -> 'SecretsConfig':
-        """Create SecretsConfig from environment variables.
-        
-        Returns:
-            SecretsConfig instance
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Required secrets manifest not found: {manifest_path}")
+    
+    try:
+        with open(manifest_path, 'r') as f:
+            config = yaml.safe_load(f)
             
-        Raises:
-            ValueError: If required environment variables are missing
-        """
-        # Get salt from environment variable
-        salt = os.environ.get('CUSTOM_AUTH_SALT')
-        if not salt:
-            raise ValueError("CUSTOM_AUTH_SALT environment variable is required but not set")
+        if not config or 'secrets' not in config:
+            raise ValueError(f"Invalid secrets manifest: missing 'secrets' key in {manifest_path}")
+            
+        secrets = []
+        for secret_config in config['secrets']:
+            secrets.append(SecretDefinition(
+                name=secret_config['name'],
+                local_default=secret_config.get('local_default'),
+                required_when=secret_config.get('required_when')
+            ))
+            
+        return secrets
         
-        # Get authorization settings from environment variables
-        all_authenticated_users = os.environ.get('ALL_AUTHENTICATED_USERS', 'false').lower() in ('true', '1', 'yes', 'on')
+    except Exception as e:
+        raise RuntimeError(f"Failed to load secrets manifest from {manifest_path}: {e}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def get_authorization_config() -> Authorization:
+    """Get authorization configuration from environment variables.
+    
+    Returns:
+        Authorization configuration loaded from environment.
         
-        # Get allowed user emails from environment variable (comma-separated)
-        allowed_emails_str = os.environ.get('ALLOWED_USER_EMAILS', '')
-        allowed_user_emails = [email.strip() for email in allowed_emails_str.split(',') if email.strip()] if allowed_emails_str else []
+    Raises:
+        RuntimeError: If authorization configuration cannot be loaded.
+    """
+    try:
+        # Try to get allowed user emails from secret (comma-separated)
+        try:
+            allowed_emails_str = get_secret('allowed-user-emails')
+        except Exception:
+            # Secret not available (testing environment) - use empty defaults
+            # Tests will inject their own authorization settings
+            allowed_emails_str = None
+            
+        if allowed_emails_str:
+            allowed_user_emails = [email.strip() for email in allowed_emails_str.split(',')]
+            # Check if wildcard "*" is present for all authenticated users
+            all_authenticated_users = '*' in allowed_user_emails
+        else:
+            # Default for testing - tests will override as needed
+            allowed_user_emails = []
+            all_authenticated_users = False
         
-        # Create authorization object
-        authorization = Authorization(
+        return Authorization(
             all_authenticated_users=all_authenticated_users,
             allowed_user_emails=allowed_user_emails
         )
         
-        return cls(
-            salt=salt,
-            google_api_key="",  # No longer used, but kept for backward compatibility
-            authorization=authorization
-        )
+    except Exception as e:
+        raise RuntimeError(f"Failed to load authorization configuration: {e}")
+
+
+def get_secret(secret_name: str) -> str:
+    """Get a secret value by name with proper validation.
+    
+    Args:
+        secret_name: Name of the secret to retrieve (must match a name in SECRET_DEFINITIONS)
+        
+    Returns:
+        Secret value as string.
+        
+    Raises:
+        RuntimeError: If the secret is not available or invalid.
+    """
+    # Find the secret definition
+    secret_definitions = load_secrets_manifest()
+    secret_def = None
+    for secret in secret_definitions:
+        if secret.name == secret_name:
+            secret_def = secret
+            break
+    
+    if not secret_def:
+        available_names = [s.name for s in secret_definitions]
+        raise RuntimeError(f"Unknown secret name: {secret_name}. Available: {available_names}")
+    
+    # Get value from environment variable
+    value = os.environ.get(secret_def.env_var)
+    
+    if not value:
+        raise RuntimeError(f"Secret '{secret_name}' is required but not set (environment variable: {secret_def.env_var})")
+    
+    if not value.strip():
+        raise RuntimeError(f"Secret '{secret_name}' is empty or contains only whitespace")
+    
+    return value.strip()

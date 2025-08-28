@@ -205,7 +205,7 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
         
         # Load and inject environment variables from configuration files
         try:
-            from multi_eden.build.config.env import load_env
+            from multi_eden.build.secrets import load_env
             
             load_env(config_env)
             
@@ -222,21 +222,18 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
                 env_vars['CUSTOM_AUTH_ENABLED'] = os.environ['CUSTOM_AUTH_ENABLED']
                 print(f"🔧 CUSTOM_AUTH_ENABLED={os.environ['CUSTOM_AUTH_ENABLED']} (from config)")
             
-            if os.environ.get('CUSTOM_AUTH_SALT'):
-                env_vars['CUSTOM_AUTH_SALT'] = os.environ['CUSTOM_AUTH_SALT']
-                print(f"🔧 CUSTOM_AUTH_SALT set (from config)")
+            # Copy all secret environment variables using manifest
+            from ..secrets import secrets_manifest
+            secrets_manifest.copy_set_env_vars_to_dict(env_vars)
             
-            if os.environ.get('GEMINI_API_KEY'):
-                env_vars['GEMINI_API_KEY'] = os.environ['GEMINI_API_KEY']
-                print(f"🔧 GEMINI_API_KEY set (from config)")
+            # Show which secrets were set
+            for env_var in secrets_manifest.get_env_var_names():
+                if os.environ.get(env_var):
+                    print(f"🔧 {env_var} set (from config)")
             
-            if os.environ.get('ALL_AUTHENTICATED_USERS'):
-                env_vars['ALL_AUTHENTICATED_USERS'] = os.environ['ALL_AUTHENTICATED_USERS']
-                print(f"🔧 ALL_AUTHENTICATED_USERS={os.environ['ALL_AUTHENTICATED_USERS']} (from config)")
+            # ALL_AUTHENTICATED_USERS removed - now handled via wildcard in allowed-user-emails
             
-            if os.environ.get('ALLOWED_USER_EMAILS'):
-                env_vars['ALLOWED_USER_EMAILS'] = os.environ['ALLOWED_USER_EMAILS']
-                print(f"🔧 ALLOWED_USER_EMAILS set (from config)")
+            # ALLOWED_USER_EMAILS now handled via secrets manifest
             
         except Exception as e:
             print(f"⚠️  Could not load provider configuration: {e}")

@@ -108,8 +108,17 @@ def run_pytest(suite, config_env, verbose, test_name=None):
         print(f"⚠️  No test paths configured for suite '{suite}'")
         return None
     
-    # Load environment variables from configuration files
-    env_vars = load_environment_variables(config_env)
+    # Load environment configuration
+    if config_env:
+        try:
+            from multi_eden.build.secrets import load_env
+            load_env(config_env)
+            print(f"🔧 Loaded configuration from {config_env} environment")
+        except Exception as e:
+            print(f"⚠️  Could not load configuration for environment '{config_env}': {e}")
+    
+    # Use current environment variables (set by load_env)
+    env_vars = os.environ.copy()
     
     # Use the virtual environment's pytest directly (same as Makefile)
     venv_pytest = Path.cwd() / "venv" / "bin" / "pytest"
@@ -168,7 +177,11 @@ def run_pytest(suite, config_env, verbose, test_name=None):
     
     # Run pytest with environment variables
     print(f"🧪 Running {suite} tests...")
-    print(f"🔧 Environment variables: {', '.join([f'{k}={v}' for k, v in env_vars.items() if v and k in ['STUB_AI', 'STUB_DB', 'CUSTOM_AUTH_ENABLED', 'API_TESTING_URL', 'CUSTOM_AUTH_SALT', 'GEMINI_API_KEY']])}")
+    # Show environment variables including secrets
+    from ..secrets import secrets_manifest
+    secret_env_vars = secrets_manifest.get_env_var_names()
+    display_vars = ['STUB_AI', 'STUB_DB', 'CUSTOM_AUTH_ENABLED', 'API_TESTING_URL'] + secret_env_vars
+    print(f"🔧 Environment variables: {', '.join([f'{k}={v}' for k, v in env_vars.items() if v and k in display_vars])}")
     
     result = subprocess.run(cmd, cwd=Path.cwd(), env=env_vars)
     
@@ -180,64 +193,7 @@ def run_pytest(suite, config_env, verbose, test_name=None):
     return result
 
 
-def load_environment_variables(config_env):
-    """
-    Load environment variables from configuration files.
-    
-    Args:
-        config_env: Configuration environment name
-        
-    Returns:
-        dict: Dictionary of environment variables to set
-    """
-    env_vars = os.environ.copy()
-    
-    if config_env:
-        try:
-            # Use the new build/config/env.py load_env function
-            from multi_eden.build.config.env import load_env
-            load_env(config_env)
-            
-            # Copy environment variables set by load_env() to our env_vars dict
-            if os.environ.get('STUB_AI'):
-                env_vars['STUB_AI'] = os.environ['STUB_AI']
-                print(f"🔧 STUB_AI={os.environ['STUB_AI']} (from config)")
-            
-            if os.environ.get('STUB_DB'):
-                env_vars['STUB_DB'] = os.environ['STUB_DB']
-                print(f"🔧 STUB_DB={os.environ['STUB_DB']} (from config)")
-            
-            if os.environ.get('CUSTOM_AUTH_ENABLED'):
-                env_vars['CUSTOM_AUTH_ENABLED'] = os.environ['CUSTOM_AUTH_ENABLED']
-                print(f"🔧 CUSTOM_AUTH_ENABLED={os.environ['CUSTOM_AUTH_ENABLED']} (from config)")
-            
-            if os.environ.get('CUSTOM_AUTH_SALT'):
-                env_vars['CUSTOM_AUTH_SALT'] = os.environ['CUSTOM_AUTH_SALT']
-                print(f"🔧 CUSTOM_AUTH_SALT set (from config)")
-            
-            if os.environ.get('GEMINI_API_KEY'):
-                env_vars['GEMINI_API_KEY'] = os.environ['GEMINI_API_KEY']
-                print(f"🔧 GEMINI_API_KEY set (from config)")
-            
-            if os.environ.get('ALL_AUTHENTICATED_USERS'):
-                env_vars['ALL_AUTHENTICATED_USERS'] = os.environ['ALL_AUTHENTICATED_USERS']
-                print(f"🔧 ALL_AUTHENTICATED_USERS={os.environ['ALL_AUTHENTICATED_USERS']} (from config)")
-            
-            if os.environ.get('ALLOWED_USER_EMAILS'):
-                env_vars['ALLOWED_USER_EMAILS'] = os.environ['ALLOWED_USER_EMAILS']
-                print(f"🔧 ALLOWED_USER_EMAILS set (from config)")
-            
-            # Set API_TESTING_URL for testing purposes
-            env_vars['API_TESTING_URL'] = 'http://localhost:8000'
-            print(f"🔧 Setting API_TESTING_URL=http://localhost:8000 for testing")
-            
-            print(f"🔧 Loaded configuration from {config_env} environment")
-            
-        except Exception as e:
-            print(f"⚠️  Could not load configuration for environment '{config_env}': {e}")
-            print(f"⚠️  Continuing with default environment variables")
-    
-    return env_vars
+# Removed ugly load_environment_variables method - now using load_env() directly
 
 
 def get_test_paths_from_config(suite):

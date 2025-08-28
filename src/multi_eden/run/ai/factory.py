@@ -89,10 +89,14 @@ def _import_class(class_path: str) -> Type['ModelClient']:
     except AttributeError as e:
         raise AttributeError(f"Class '{class_name}' not found in '{module_name}': {e}")
 
-def _instantiate_client(client_class: Type['ModelClient'], service_name: str) -> 'ModelClient':
+def _instantiate_client(client_class: Type['ModelClient'], model_name: str, service_name: str) -> 'ModelClient':
     """Instantiate client with proper error handling."""
     try:
-        return client_class(service_name)
+        # GoogleClient expects (model_name, service_name), MockClient expects (service_name)
+        if hasattr(client_class, '__name__') and 'GoogleClient' in client_class.__name__:
+            return client_class(model_name, service_name)
+        else:
+            return client_class(service_name)
     except Exception as e:
         raise RuntimeError(f"Failed to instantiate {client_class.__name__}: {e}")
 
@@ -107,7 +111,7 @@ def create(service_name: str, model_override: Optional[str] = None, operation: O
     client_class = _get_client_class(provider)
     
     # Create and validate client instance
-    client = _instantiate_client(client_class, service_name)
+    client = _instantiate_client(client_class, model_id, service_name)
     
     # Configure MockClient with operation context if available
     if hasattr(client, 'set_operation') and operation:

@@ -7,7 +7,7 @@ import jwt
 import yaml
 from firebase_admin import auth
 
-from multi_eden.run.config import get_secrets, get_project_id, is_cloud_enabled
+from multi_eden.run.config import get_authorization, get_project_id, is_cloud_enabled, get_secret
 from . import NON_CLOUD_ENV_NAME, CUSTOM_AUTH_BASE_ISSUER
 # Import config.mode here to avoid circular imports
 from .exceptions import AuthenticationError, AuthorizationError, TokenExpiredError, TokenSignatureError, TokenMalformedError, TokenIssuerError
@@ -93,17 +93,16 @@ def validate_token(token: str) -> dict:
         custom_issuer = CUSTOM_AUTH_BASE_ISSUER
         if (issuer == custom_issuer):
             if is_custom_auth_enabled():
-                secrets_config = get_secrets()
-                salt = secrets_config.salt
+                jwt_key = get_secret('jwt-secret-key')
                 logger.debug(f"  - Validator Path: Custom JWT")
                 logger.debug(f"  - Expected Issuer: {custom_issuer}")
-                logger.debug(f"  - Retrieved Salt (first 8 chars): {salt[:8]}...")
+                logger.debug(f"  - Retrieved JWT key (first 8 chars): {jwt_key[:8]}...")
 
                 # Callback hook for testing
                 _on_before_validate_custom_token(token) 
 
                 # The library handles the issuer check internally 
-                return jwt.decode(token, salt, algorithms=["HS256"], issuer=custom_issuer)
+                return jwt.decode(token, jwt_key, algorithms=["HS256"], issuer=custom_issuer)
             else:
                 raise AuthenticationError("Custom auth is disabled, but token is a custom token.")
         else:
@@ -142,15 +141,15 @@ def authorize_user(email: str):
         AuthorizationError: If the user is not authorized.
     """
     try:
-        # Get secrets configuration
-        secrets_config = get_secrets()
+        # Get authorization configuration
+        authorization = get_authorization()
         
         # If all authenticated users are allowed, skip email check
-        if secrets_config.authorization.all_authenticated_users:
+        if authorization.all_authenticated_users:
             return
         
         # Otherwise, check against allowed emails list
-        allowed_emails = secrets_config.authorization.allowed_user_emails
+        allowed_emails = authorization.allowed_user_emails
         if email in allowed_emails:
             return
         else:
