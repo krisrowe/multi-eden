@@ -77,7 +77,7 @@ def docker_build(ctx, config_env=None):
     'container_name': 'Container name'
 })
 @requires_config_env
-def docker_run(ctx, config_env=None, port=8001, container_name = "my-app:local"):
+def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app"):
     """
     Start local Docker API container.
     
@@ -98,16 +98,35 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "my-app:local")
         print(f"🧹 Cleaning up existing container: {container_name}")
         run_command(f"docker rm -f {container_name}", check=False)
         
+        # Get the actual built image name and tag
+        from multi_eden.build.tasks.build import get_build_config, check_existing_tag
+        
+        try:
+            project_id, image_name = get_build_config()
+            existing_tag = check_existing_tag()
+            
+            if existing_tag:
+                full_image_name = f"gcr.io/{project_id}/{image_name}:{existing_tag}"
+                print(f"🏷️  Using image: {full_image_name}")
+            else:
+                print("❌ No tagged image found. Please run 'invoke build' first.")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Could not determine image name: {e}")
+            print("💡 Please run 'invoke build' first to create an image.")
+            return False
+        
         # Build Docker run command
         cmd_parts = [
             "docker run -d",
             f"--name {container_name}",
-            f"-p {port}:8080",
+            f"-p {port}:8000",  # Use port 8000 to match the container
             f"-e CONFIG_ENV={config_env}",
             f"-v {repo_root}/secrets:/app/core/secrets:ro",
             f"-v {repo_root}/config/settings/{config_env}:/app/config/settings/static:ro",
             f"-v {repo_root}/config/secrets/{config_env}:/app/config/secrets/static:ro",
-            "my-app:local"
+            full_image_name
         ]
         
         cmd = " ".join(cmd_parts)

@@ -27,6 +27,7 @@ from .backup import config_env_backup
 from .restore import config_env_restore
 from .env import (
     config_env_create,
+    config_env_update_secrets,
     config_env_list,
     CreateConfigEnvError,
     EnvironmentExistsError,
@@ -53,6 +54,7 @@ __all__ = [
     
     # Environment management functions
     'config_env_create',
+    'config_env_update_secrets',
     'config_env_list',
     'CreateConfigEnvError',
     'EnvironmentExistsError',
