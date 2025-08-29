@@ -117,17 +117,36 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
             print("💡 Please run 'invoke build' first to create an image.")
             return False
         
+        # Get environment variables from manifest
+        from multi_eden.build.config.env_vars_manifest import get_env_var_names
+        from multi_eden.build.config.loading import load_settings, load_env
+        
+        # Load environment (this sets up environment variables)
+        load_env(config_env)
+        
+        # Get environment variable names from manifest
+        env_var_names = get_env_var_names()
+        
         # Build Docker run command
         cmd_parts = [
             "docker run -d",
             f"--name {container_name}",
             f"-p {port}:8000",  # Use port 8000 to match the container
-            f"-e CONFIG_ENV={config_env}",
-            f"-v {repo_root}/secrets:/app/core/secrets:ro",
-            f"-v {repo_root}/config/settings/{config_env}:/app/config/settings/static:ro",
-            f"-v {repo_root}/config/secrets/{config_env}:/app/config/secrets/static:ro",
-            full_image_name
+            f"-e CONFIG_ENV={config_env}"
         ]
+        
+        # Add environment variables from manifest
+        for env_var in env_var_names:
+            if env_var in os.environ:
+                cmd_parts.append(f"-e {env_var}={os.environ[env_var]}")
+        
+        # Add secrets environment variables
+        secret_env_vars = ["JWT_SECRET_KEY", "ALLOWED_USER_EMAILS", "GEMINI_API_KEY"]
+        for env_var in secret_env_vars:
+            if env_var in os.environ:
+                cmd_parts.append(f"-e {env_var}={os.environ[env_var]}")
+        
+        cmd_parts.append(full_image_name)
         
         cmd = " ".join(cmd_parts)
         
