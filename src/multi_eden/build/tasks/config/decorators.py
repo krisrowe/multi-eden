@@ -63,9 +63,9 @@ def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict,
             )
         selection_method = f"\033[1;33m{task_name}\033[0m task default"
     
-    # Display the configuration environment section (only once)
+    # Display the testing configuration section (only once)
     print("\n" + "="*50)
-    print("🔧 CONFIGURATION ENVIRONMENT")
+    print("🔧 TESTING CONFIGURATION")
     print("="*50)
     print(f"Using: \033[1;36m{env_name}\033[0m")  # Bright cyan color
     print(f"Selection method: {selection_method}")

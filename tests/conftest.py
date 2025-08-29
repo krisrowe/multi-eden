@@ -33,9 +33,8 @@ def pytest_configure(config):
         from multi_eden.run.config.testing import get_mode
         test_mode_config = get_mode()
         
-        print(f"\n🔧 Test Suite: {test_mode_config.mode}")
-        print(f"📋 Test Paths: {test_mode_config.get_test_paths()}")
-        print(f"🌍 Default Environment: {test_mode_config.default_env}")
+        # Configuration info is already shown in CONFIGURATION ENVIRONMENT table
+        # No need to duplicate it here
         
     except Exception as e:
         pytest.exit(f"❌ Failed to load mode configuration: {e}")

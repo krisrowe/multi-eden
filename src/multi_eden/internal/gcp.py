@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Optional, List
 
-from multi_eden.run.config.testing import is_test_mode
+
 def verify_gcp_connectivity(project_id: str) -> bool:
     """
     Verify GCP connectivity and project access.
@@ -279,7 +279,7 @@ def find_config_buckets_by_label(project_id: str, label_key: str, label_value: s
         # Check if we're in a test environment and enforce bucket limits
         try:
             # Only import and check if we're running tests (avoid circular imports in production)
-            if 'pytest' in sys.modules or is_test_mode():
+            if 'pytest' in sys.modules:
                 from ..tests.config import MAX_EXPECTED_BUCKETS
                 if total_buckets > MAX_EXPECTED_BUCKETS:
                     print(f"    ⚠️  WARNING: Bucket count ({total_buckets}) exceeds expected maximum ({MAX_EXPECTED_BUCKETS})")

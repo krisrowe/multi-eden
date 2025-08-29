@@ -192,7 +192,7 @@ def is_test_mode() -> bool:
     try:
         get_mode_name()
         return True
-    except TestModeNotDetectedException:
+    except (TestModeNotDetectedException, TestModeConfigurationNotAvailable):
         return False
 
 

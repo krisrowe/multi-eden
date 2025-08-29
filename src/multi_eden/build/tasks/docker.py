@@ -243,7 +243,7 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
         
         # Load and inject environment variables from configuration files
         try:
-            from multi_eden.build.secrets import load_env
+            from multi_eden.build.config.loading import load_env
             
             load_env(config_env)
             

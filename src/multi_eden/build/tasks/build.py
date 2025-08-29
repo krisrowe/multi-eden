@@ -202,7 +202,7 @@ def build(ctx, force=False, tag=None):
         
         # Load environment configuration for build
         try:
-            from multi_eden.build.secrets import load_env
+            from multi_eden.build.config.loading import load_env
             # Use a default environment for build operations
             load_env("dev")  # Default to dev environment for builds
             print(f"🔧 Loaded build configuration from dev environment")

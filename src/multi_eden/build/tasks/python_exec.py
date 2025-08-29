@@ -80,7 +80,7 @@ def py(ctx, config_env=None, module=None, script=None, code=None, args=""):
         
         # Load environment configuration
         try:
-            from multi_eden.build.secrets import load_env
+            from multi_eden.build.config.loading import load_env
             load_env(config_env)
             print(f"✅ Environment configuration loaded from {config_env}")
         except Exception as e:
@@ -201,7 +201,7 @@ def env(ctx, config_env=None):
         
         # Load environment configuration
         try:
-            from multi_eden.build.secrets import load_env
+            from multi_eden.build.config.loading import load_env
             load_env(config_env)
             print(f"✅ Environment configuration loaded from {config_env}")
         except Exception as e:

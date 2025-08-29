@@ -116,13 +116,15 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
     # Load environment configuration
     if config_env:
         try:
-            from multi_eden.build.secrets import load_env
+            from multi_eden.build.config.loading import load_env
             load_env(config_env)
             # Environment loaded successfully
             
-            # Show detailed configuration if requested (after loading environment)
+            # Show all configuration tables (both normal and --show-config)
+            _show_all_configuration_tables(config_env)
+            
+            # Exit early if only showing configuration
             if show_config:
-                _show_secrets_configuration(config_env)
                 print("📊 Configuration display complete. Exiting without running tests.")
                 return None
                 
@@ -191,12 +193,6 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
     
     # Run pytest with environment variables
     print(f"🧪 Running {suite} tests...")
-    # Show environment variables including secrets
-    from ..secrets import secrets_manifest
-    secret_env_vars = secrets_manifest.get_env_var_names()
-    from ..config.env_vars_manifest import env_vars_manifest
-    display_vars = env_vars_manifest.get_env_var_names() + secret_env_vars
-    print(f"🔧 Environment variables: {', '.join([f'{k}={v}' for k, v in env_vars.items() if v and k in display_vars])}")
     
     result = subprocess.run(cmd, cwd=Path.cwd(), env=env_vars)
     
@@ -307,7 +303,7 @@ def _show_secrets_configuration(config_env):
     
     try:
         # Load secrets manifest from YAML
-        from multi_eden.run.config.secrets import load_secrets_manifest
+        from multi_eden.build.secrets.manifest import load_secrets_manifest
         import os
         
         secrets_found = []
@@ -364,3 +360,77 @@ def _show_secrets_configuration(config_env):
     except Exception as e:
         print(f"⚠️  Error displaying secrets configuration: {e}")
         print("=" * 74 + "\n")
+
+
+def _show_integrations_summary():
+    """Display integrations summary showing which providers are mocked."""
+    try:
+        from ...run.config.providers import (
+            is_custom_auth_enabled, 
+            is_db_in_memory, 
+            is_ai_mocked
+        )
+        from ...run.config.testing import get_mode as get_test_mode
+        
+        test_mode_config = get_test_mode()
+        
+        print("\n" + "="*60)
+        print("🔧 INTEGRATIONS SUMMARY")
+        print("="*60)
+        
+        # Auth Provider
+        custom_auth_enabled = is_custom_auth_enabled()
+        _print_integration_row("Custom Auth Enabled", custom_auth_enabled)
+        
+        # Database Provider
+        use_in_memory_db = is_db_in_memory()
+        _print_integration_row("Use In-Memory DB", use_in_memory_db)
+        
+        # AI Model Provider
+        ai_mocked = is_ai_mocked()
+        _print_integration_row("AI Model Mocked", ai_mocked)
+        
+        # API Client Provider (show last)
+        api_in_memory = test_mode_config.in_memory_api
+        _print_integration_row("API In-Process", api_in_memory)
+        
+        print("="*60)
+        print()
+        
+    except Exception as e:
+        # If we can't show integrations summary, continue without it
+        print(f"⚠️  Could not display integrations summary: {e}")
+        print()
+
+
+def _print_integration_row(caption, value):
+    """Print an integration row with aligned caption and colored boolean value."""
+    # Pad caption to align values
+    padded_caption = f"{caption:<20}"
+    
+    # Color the boolean value (dim for True, bright for False)
+    if value:
+        colored_value = f"\033[2m{value}\033[0m"  # Dim color for True
+    else:
+        colored_value = f"\033[1m{value}\033[0m"  # Bright color for False
+    
+    print(f"{padded_caption} | {colored_value}")
+
+
+def _show_all_configuration_tables(config_env):
+    """Show all 4 configuration tables consistently for both normal and --show-config runs."""
+    try:
+        # Table 1: TESTING CONFIGURATION is already shown by the decorator
+        
+        # Table 2: ENVIRONMENT VARIABLES (from loading.py)
+        # This is already displayed by load_env() in loading.py
+        
+        # Table 3: SECRETS CONFIGURATION
+        _show_secrets_configuration(config_env)
+        
+        # Table 4: INTEGRATIONS SUMMARY
+        _show_integrations_summary()
+        
+    except Exception as e:
+        print(f"⚠️  Could not display configuration tables: {e}")
+        print()

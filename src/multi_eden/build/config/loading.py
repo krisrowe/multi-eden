@@ -9,7 +9,7 @@ import os
 import logging
 from typing import Dict, Any, Optional
 
-from ...run.config.secrets import load_secrets_manifest
+from ..secrets.manifest import load_secrets_manifest
 
 logger = logging.getLogger(__name__)
 

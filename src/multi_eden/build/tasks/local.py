@@ -252,7 +252,7 @@ def api_start(ctx, port=8000, env="local-server", background=True):
         
         # Load environment configuration
         try:
-            from multi_eden.build.secrets import load_env
+            from multi_eden.build.config.loading import load_env
             load_env(env)
             print(f"🔧 Loaded configuration from {env} environment")
         except Exception as e:
