@@ -176,7 +176,7 @@ def build(ctx, force=False, tag=None):
         # Validate app structure and prepare for build
         print("🔍 Validating app structure...")
         from multi_eden.build.app_structure import (
-            validate_app_structure, generate_dockerfile_content, create_dockerignore_if_missing
+            validate_app_structure, generate_dockerfile_content, generate_dockerignore_content
         )
         
         structure_info = validate_app_structure()
@@ -193,9 +193,9 @@ def build(ctx, force=False, tag=None):
         print("📝 Generating Dockerfile content from SDK template...")
         dockerfile_content = generate_dockerfile_content(main_module)
         
-        # Create .dockerignore only if missing (helps with build efficiency)
-        if create_dockerignore_if_missing():
-            print("📝 Created .dockerignore from SDK template")
+        # Generate .dockerignore content in memory (no file pollution)
+        print("📝 Generating .dockerignore content from SDK template...")
+        dockerignore_content = generate_dockerignore_content()
         
         # Validate git state
         validate_git_state()
@@ -247,9 +247,8 @@ def build(ctx, force=False, tag=None):
                     return True
                 else:
                     print("⚠️  Tag exists but image missing - rebuilding image...")
-                    if not force:
-                        print("💡 Use --force to rebuild existing tag")
-                        return False
+                    # Automatically rebuild when image is missing (recovery scenario)
+                    print("🔄 Proceeding with image rebuild...")
             else:
                 # Create new timestamp tag
                 deploy_tag = create_timestamp_tag()
@@ -263,7 +262,8 @@ def build(ctx, force=False, tag=None):
                 dockerfile_content=dockerfile_content,
                 image_name=image_name,
                 tag=deploy_tag,
-                project_id=project_id
+                project_id=project_id,
+                dockerignore_content=dockerignore_content
             ):
                 print(f"📝 IMAGE_TAG for deployment: {deploy_tag}")
                 print("💡 Use this tag with: invoke deploy")
