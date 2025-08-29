@@ -118,14 +118,14 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
             return False
         
         # Get environment variables from manifest
-        from multi_eden.build.config.env_vars_manifest import get_env_var_names
-        from multi_eden.build.config.loading import load_settings, load_env
+        from multi_eden.build.config.env_vars_manifest import env_vars_manifest
+        from multi_eden.build.config.loading import load_env
         
         # Load environment (this sets up environment variables)
         load_env(config_env)
         
         # Get environment variable names from manifest
-        env_var_names = get_env_var_names()
+        env_var_names = env_vars_manifest.get_env_var_names()
         
         # Build Docker run command
         cmd_parts = [
