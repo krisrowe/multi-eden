@@ -211,12 +211,14 @@ def env(ctx, config_env=None):
         # Show key environment variables
         import os
         from ..secrets import secrets_manifest
+        from ..config.env_vars_manifest import env_vars_manifest
         
         # Get secret env vars from manifest instead of hardcoding
         secret_env_vars = secrets_manifest.get_env_var_names()
         key_vars = [
-            'STUB_AI', 'STUB_DB', 'CUSTOM_AUTH_ENABLED', 'CLOUD_PROJECT_ID', 
-            'API_URL'
+            # Environment variables from manifest
+            *env_vars_manifest.get_env_var_names(),
+            'CLOUD_PROJECT_ID'  # Legacy display name for PROJECT_ID
         ] + secret_env_vars
         
         print("\n📋 Key Environment Variables:")

@@ -194,7 +194,8 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
     # Show environment variables including secrets
     from ..secrets import secrets_manifest
     secret_env_vars = secrets_manifest.get_env_var_names()
-    display_vars = ['STUB_AI', 'STUB_DB', 'CUSTOM_AUTH_ENABLED', 'API_TESTING_URL'] + secret_env_vars
+    from ..config.env_vars_manifest import env_vars_manifest
+    display_vars = env_vars_manifest.get_env_var_names() + secret_env_vars
     print(f"🔧 Environment variables: {', '.join([f'{k}={v}' for k, v in env_vars.items() if v and k in display_vars])}")
     
     result = subprocess.run(cmd, cwd=Path.cwd(), env=env_vars)

@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class UnifiedSettings:
-    """Unified configuration for all app settings."""
+class Settings:
+    """Build-time configuration for all app settings."""
     
     # Environment identification
     project_id: Optional[str] = None  # If set, indicates cloud environment
@@ -35,8 +35,11 @@ class UnifiedSettings:
     # Security settings
     local: bool = False  # Whether to allow local defaults for secrets
     
+    # Network configuration
+    port: Optional[int] = None  # API port override
+    
     @classmethod
-    def from_config_env(cls, config_env: str, app_config_path: str = "config/private/environments.yaml") -> 'UnifiedSettings':
+    def from_config_env(cls, config_env: str, app_config_path: str = "config/private/environments.yaml") -> 'Settings':
         """Load unified settings by merging SDK defaults with app-specific overrides."""
         
         # Load SDK default environments
@@ -133,24 +136,24 @@ class UnifiedSettings:
         """Derive API URL based on settings and task context."""
         
         # 1. Environment variable override (highest priority)
-        if env_var := os.getenv('API_URL'):
+        if env_var := os.getenv('API_TESTING_URL'):
             return env_var
         
-        # 2. Cloud environment (project_id present)
+        # 2. Cloud environment (project_id present) - get actual Cloud Run URL
         if self.project_id:
-            # TODO: Call gcloud to get actual Cloud Run URL
-            # For now, return placeholder based on project naming convention
-            service_name = self.project_id.replace('-', '')
-            return f"https://{service_name}-api.run.app"
+            from multi_eden.internal.gcp import get_cloud_run_service_url
+            service_name = f"{self.project_id}-api"
+            return get_cloud_run_service_url(self.project_id, service_name)
         
-        # 3. Local execution (no project_id) - port determined by task context
-        task_context = task_context or {}
+        # 3. Local execution (no project_id) - only if local setting is enabled
+        if not self.local:
+            raise RuntimeError("Cannot derive API URL: no project_id for cloud and local execution not enabled")
         
-        # Check task context for execution method
-        if task_context.get('docker') or task_context.get('container'):
-            return "http://localhost:8001"  # Docker/container port
+        # Local execution - use port if configured, otherwise default localhost
+        if self.port:
+            return f"http://localhost:{self.port}"
         else:
-            return "http://localhost:8000"  # Direct server port
+            return "http://localhost"
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for environment setup."""
@@ -160,38 +163,11 @@ class UnifiedSettings:
             'custom_auth_enabled': self.custom_auth_enabled,
             'stub_ai': self.stub_ai,
             'stub_db': self.stub_db,
-            'local': self.local
+            'local': self.local,
+            'port': self.port
         }
 
 
-def load_unified_settings(config_env: str) -> UnifiedSettings:
-    """Load unified settings for the given config environment."""
-    return UnifiedSettings.from_config_env(config_env)
-
-
-def get_environment_settings(config_env: str) -> Dict[str, Any]:
-    """Get environment settings as a dictionary for the given config environment."""
-    settings = load_unified_settings(config_env)
-    return settings.to_dict()
-
-
-def setup_environment_from_settings(config_env: str, task_context: Optional[Dict[str, Any]] = None) -> None:
-    """Set up complete environment from unified settings."""
-    # Load unified settings
-    settings = load_unified_settings(config_env)
-    
-    # Set up basic environment variables
-    os.environ['STUB_AI'] = str(settings.stub_ai).lower()
-    os.environ['STUB_DB'] = str(settings.stub_db).lower() 
-    os.environ['CUSTOM_AUTH_ENABLED'] = str(settings.custom_auth_enabled).lower()
-    
-    # Set API URL if not in-memory
-    if not settings.api_in_memory:
-        api_url = settings.derive_api_url(task_context)
-        os.environ['API_URL'] = api_url
-        logger.info(f"Set API_URL to: {api_url}")
-    
-    # Note: Secrets setup is now handled by build package task runners
-    # using the new secrets_setup module
-    
-    logger.info(f"Environment setup complete for config: {config_env}")
+def load_settings(config_env: str) -> Settings:
+    """Load settings for the given environment."""
+    return Settings.from_config_env(config_env)

@@ -1,0 +1,28 @@
+# Multi-Eden SDK Environment Variables Manifest
+# Defines ALL environment variables to set up
+#
+# DEFAULT BEHAVIOR:
+# - source: "setting" (default if not specified)
+# - setting_key: case-insensitive name match (STUB_AI -> stub_ai)
+# - boolean settings -> lowercase string transform
+
+environment_variables:
+  # Provider stubbing controls
+  - name: "STUB_AI"
+    source: "setting"
+    
+  - name: "STUB_DB"
+    source: "setting"
+    
+  - name: "CUSTOM_AUTH_ENABLED" 
+    source: "setting"
+    
+  - name: "PROJECT_ID"
+    source: "setting"
+  
+  # Test framework API endpoint
+  - name: "API_TESTING_URL"
+    source: "derived"
+    method: "derive_api_url"
+    condition:
+      api_in_memory: false

@@ -26,12 +26,12 @@ def show_config(ctx, env="unit-testing"):
         stderr: Diagnostic information
     """
     try:
-        from multi_eden.run.config.unified_settings import UnifiedSettings
+        from ..config.settings import Settings
         
         # Load settings with diagnostic info
         print(f"🔍 Loading configuration for environment: {env}", file=sys.stderr)
         
-        settings = UnifiedSettings.from_config_env(env)
+        settings = Settings.from_config_env(env)
         
         # Convert to dictionary for YAML output
         config_dict = {
@@ -66,13 +66,13 @@ def list_environments(ctx):
     Shows both SDK defaults and app-specific overrides.
     """
     try:
-        from multi_eden.run.config.unified_settings import UnifiedSettings
+        from ..config.settings import Settings
         
         print("📋 Available Configuration Environments:", file=sys.stderr)
         print("", file=sys.stderr)
         
         # Load SDK defaults
-        sdk_envs = UnifiedSettings._load_sdk_environments()
+        sdk_envs = Settings._load_sdk_environments()
         print(f"🔧 SDK Defaults ({len(sdk_envs)} environments):", file=sys.stderr)
         for env_name in sorted(sdk_envs.keys()):
             env_config = sdk_envs[env_name]
@@ -83,7 +83,7 @@ def list_environments(ctx):
         print("", file=sys.stderr)
         
         # Load app overrides
-        app_envs = UnifiedSettings._load_app_environments("config/env/settings.yaml")
+        app_envs = Settings._load_app_environments("config/env/settings.yaml")
         if app_envs:
             print(f"🏢 App Overrides ({len(app_envs)} environments):", file=sys.stderr)
             for env_name in sorted(app_envs.keys()):

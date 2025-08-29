@@ -229,17 +229,11 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
             load_env(config_env)
             
             # Copy environment variables set by load_env() to our env_vars dict
-            if os.environ.get('STUB_AI'):
-                env_vars['STUB_AI'] = os.environ['STUB_AI']
-                print(f"🔧 STUB_AI={os.environ['STUB_AI']} (from config)")
-            
-            if os.environ.get('STUB_DB'):
-                env_vars['STUB_DB'] = os.environ['STUB_DB']
-                print(f"🔧 STUB_DB={os.environ['STUB_DB']} (from config)")
-            
-            if os.environ.get('CUSTOM_AUTH_ENABLED'):
-                env_vars['CUSTOM_AUTH_ENABLED'] = os.environ['CUSTOM_AUTH_ENABLED']
-                print(f"🔧 CUSTOM_AUTH_ENABLED={os.environ['CUSTOM_AUTH_ENABLED']} (from config)")
+            from ..config.env_vars_manifest import env_vars_manifest
+            for env_var_name in env_vars_manifest.get_env_var_names():
+                if os.environ.get(env_var_name):
+                    env_vars[env_var_name] = os.environ[env_var_name]
+                    print(f"🔧 {env_var_name}={os.environ[env_var_name]} (from config)")
             
             # Copy all secret environment variables using manifest
             from ..secrets import secrets_manifest
@@ -262,9 +256,9 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
         print(f"   VITE_API_URL: {env_vars.get('VITE_API_URL')}")
         print(f"   VITE_AUTH_TOKEN: {env_vars.get('VITE_AUTH_TOKEN')[:20]}..." if env_vars.get('VITE_AUTH_TOKEN') else "   VITE_AUTH_TOKEN: None")
         print(f"   CONFIG_ENV: {env_vars.get('CONFIG_ENV')}")
-        print(f"   STUB_AI: {env_vars.get('STUB_AI', 'not set')}")
-        print(f"   STUB_DB: {env_vars.get('STUB_DB', 'not set')}")
-        print(f"   CUSTOM_AUTH_ENABLED: {env_vars.get('CUSTOM_AUTH_ENABLED', 'not set')}")
+        # Display all environment variables from manifest
+        for env_var_name in env_vars_manifest.get_env_var_names():
+            print(f"   {env_var_name}: {env_vars.get(env_var_name, 'not set')}")
         
         compose_cmd = "docker compose up --build -d"
         result = run_command(compose_cmd, env=env_vars)

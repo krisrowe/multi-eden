@@ -22,56 +22,85 @@ def load_env(env_name: str, repo_root=None) -> None:
         repo_root: Repository root path (unused, kept for compatibility)
     """
     from pathlib import Path
-    from ...run.config.unified_settings import get_environment_settings
+    from .settings import load_settings
     
     logger.debug(f"Loading environment configuration for: {env_name}")
     
     try:
-        # Get unified environment settings
-        settings = get_environment_settings(env_name)
+        # Load unified settings and environment variables manifest
+        settings = load_settings(env_name)
+        from .env_vars_manifest import load_env_vars_manifest
+        env_vars_manifest = load_env_vars_manifest()
         
-        # Collect environment variables and their sources for table display
+        # Set up environment variables from manifest
         env_vars_info = []
         
-        # Set environment variables from settings (skip special keys)
-        for key, value in settings.items():
-            if key in ['local', 'project_id']:  # Skip special keys
-                continue
-            env_var = key.upper()
-            was_set = env_var in os.environ
-            os.environ.setdefault(env_var, str(value))
-            source = "Pre-existing" if was_set else "Test suite setting"
-            env_vars_info.append((env_var, str(value), source))
-        
-        # Handle project ID if set
-        if settings.get('project_id'):
-            was_set = 'PROJECT_ID' in os.environ
-            os.environ.setdefault('PROJECT_ID', settings['project_id'])
-            source = "Pre-existing" if was_set else "Test suite setting"
-            env_vars_info.append(('PROJECT_ID', settings['project_id'], source))
+        # Process each manifest entry
+        for env_def in env_vars_manifest:
+            env_value = None
+            
+            source_info = "environments.yaml"  # Default source
+            
+            if env_def.source == "setting":
+                # Auto-derive setting_key: "PROJECT_ID" -> "project_id"
+                setting_key = env_def.setting_key or env_def.name.lower()
+                
+                value = getattr(settings, setting_key, None)
+                if value is None:
+                    continue  # Skip if setting not present
+                    
+                # Transform booleans to lowercase strings
+                if isinstance(value, bool):
+                    env_value = str(value).lower()
+                else:
+                    env_value = str(value)
+                
+                source_info = "environments.yaml"
+                    
+            elif env_def.source == "derived":
+                # Check condition first
+                if env_def.condition:
+                    condition_met = all(
+                        getattr(settings, k) == v 
+                        for k, v in env_def.condition.items()
+                    )
+                    if not condition_met:
+                        continue  # Skip if condition not met
+                
+                # Call method on settings
+                method = getattr(settings, env_def.method)
+                env_value = method()
+                source_info = f"{env_def.method}()"
+            
+            # Set environment variable
+            if env_value is not None:
+                os.environ.setdefault(env_def.name, env_value)
+                env_vars_info.append((env_def.name, env_value, source_info))
         
         # Display environment variables table
         if env_vars_info:
-            print("\n" + "=" * 65)
+            print("\n" + "=" * 85)
             print("🔧 ENVIRONMENT VARIABLES")
-            print("=" * 65)
-            print(f"{'VARIABLE':<25} {'VALUE':<12} {'SOURCE':<20}")
-            print("-" * 65)
+            print("=" * 85)
+            print(f"{'VARIABLE':<25} {'VALUE':<34} {'SOURCE':<19}")
+            print("-" * 85)
             for env_var, value, source in env_vars_info:
-                # Truncate long values for display (max 12 chars)
-                display_value = value if len(value) <= 12 else value[:9] + "..."
-                print(f"{env_var:<25} {display_value:<12} {source:<20}")
-            print("=" * 65)
+                # Truncate long values for display (max 34 chars)
+                display_value = value if len(value) <= 34 else value[:31] + "..."
+                # Use source as-is (already descriptive)
+                display_source = source
+                print(f"{env_var:<25} {display_value:<34} {display_source:<19}")
+            print("=" * 85)
         
-        if not settings.get('project_id'):
+        if not settings.project_id:
             print(f"   ✅ No project ID - using local configuration")
         
         # Set up secrets environment
         _setup_secrets_environment(settings, env_name)
         
-        if settings.get('project_id'):
+        if settings.project_id:
             pass  # Secrets loaded from Secret Manager
-        elif settings.get('local'):
+        elif settings.local:
             pass  # Local default secrets configured for testing
         else:
             pass  # No secrets configured (none required)
@@ -94,7 +123,7 @@ def _setup_secrets_environment(settings: Dict[str, Any], config_env: str) -> Non
             continue
             
         # Skip secrets without local default when API is out-of-process
-        api_in_memory = settings.get('api_in_memory', True)
+        api_in_memory = settings.api_in_memory
         if not secret.local_default and not api_in_memory:
             pass  # Skipping secret - no local default and API is out-of-process
             continue
@@ -114,8 +143,8 @@ def _setup_secret_env_var(secret_def, settings: Dict[str, Any], config_env: str)
         pass  # Environment variable already set
         return
     
-    project_id = settings.get('project_id')
-    is_local = settings.get('local', False)
+    project_id = settings.project_id
+    is_local = settings.local
     
     # Priority 1: project_id always takes precedence (Secret Manager)
     if project_id:
@@ -150,7 +179,7 @@ def _is_secret_required(secret, settings: Dict[str, Any]) -> bool:
         return True
         
     for key, expected_value in secret.required_when.items():
-        setting_value = settings.get(key)
+        setting_value = getattr(settings, key, None)
         if setting_value != expected_value:
             return False
             

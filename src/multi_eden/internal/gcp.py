@@ -406,7 +406,40 @@ def update_gitignore(gitignore_path: str, entry: str) -> bool:
         return False
 
 
-
+def get_cloud_run_service_url(project_id: str, service_name: str, region: str = "us-central1") -> str:
+    """
+    Get the URL of a Cloud Run service.
+    
+    Args:
+        project_id: GCP Project ID
+        service_name: Cloud Run service name
+        region: GCP region (default: us-central1)
+        
+    Returns:
+        Cloud Run service URL
+        
+    Raises:
+        RuntimeError: If service not found or gcloud command fails
+    """
+    try:
+        result = subprocess.run(
+            ["gcloud", "run", "services", "describe", service_name,
+             "--project", project_id, "--region", region, 
+             "--format=value(status.url)"],
+            capture_output=True, text=True, check=True
+        )
+        
+        service_url = result.stdout.strip()
+        if not service_url:
+            raise RuntimeError(f"Cloud Run service '{service_name}' in project '{project_id}' has no URL")
+            
+        return service_url
+        
+    except subprocess.CalledProcessError as e:
+        stderr_output = e.stderr.strip() if e.stderr else "No error details"
+        raise RuntimeError(f"Failed to get Cloud Run service URL for '{service_name}' in project '{project_id}': {stderr_output}")
+    except Exception as e:
+        raise RuntimeError(f"Error retrieving Cloud Run service URL: {e}")
 
 
 
