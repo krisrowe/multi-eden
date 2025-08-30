@@ -53,8 +53,8 @@ settings:
     secret: false
     description: "Google Cloud project ID for cloud services"
     
-  # Application Configuration (from app.yaml)
+  # Application Configuration (from environment variable)
   - name: "app-id"
-    source: "app-config:id"
+    source: "env-var:APP_ID"
     secret: false
     description: "Application identifier from config/app.yaml"

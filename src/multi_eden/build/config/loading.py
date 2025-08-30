@@ -72,6 +72,15 @@ def load_env(env_name: str, repo_root=None, quiet: bool = False) -> None:
                 method = getattr(settings, env_def.method)
                 env_value = method()
                 source_info = f"{env_def.method}()"
+                
+            elif env_def.source.startswith("app:"):
+                # Read from app.yaml: "app:field" -> read field from app.yaml
+                field_name = env_def.source.split(":", 1)[1]
+                app_config = _get_app_config()
+                env_value = app_config.get(field_name)
+                if env_value is not None:
+                    env_value = str(env_value)
+                    source_info = f"app.yaml:{field_name}"
             
             # Set environment variable
             if env_value is not None:
@@ -240,27 +249,28 @@ def _expand_local_default(local_default: str, config_env: str) -> str:
     return expanded
 
 
-def _get_app_id() -> str:
-    """Get application ID from app.yaml."""
+def _get_app_config() -> dict:
+    """Get full app configuration from app.yaml."""
     try:
         import yaml
         from pathlib import Path
         
         app_yaml_path = Path.cwd() / 'config' / 'app.yaml'
         if not app_yaml_path.exists():
-            # Fallback to generic app ID
-            return 'multi-eden-app'
+            # Fallback to default config
+            return {'id': 'multi-eden-app'}
             
         with open(app_yaml_path, 'r') as f:
             app_config = yaml.safe_load(f)
             
-        app_id = app_config.get('app_id') or app_config.get('id')
-        if not app_id:
-            # Fallback to generic app ID
-            return 'multi-eden-app'
-            
-        return app_id
+        return app_config or {}
         
-    except Exception as e:
-        # Silently fallback to generic app ID
-        return 'multi-eden-app'
+    except Exception:
+        # Fallback on any error
+        return {'id': 'multi-eden-app'}
+
+
+def _get_app_id() -> str:
+    """Get application ID from app.yaml."""
+    app_config = _get_app_config()
+    return app_config.get('id', 'multi-eden-app')

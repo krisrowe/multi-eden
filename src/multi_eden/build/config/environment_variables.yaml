@@ -27,6 +27,10 @@ environment_variables:
     condition:
       api_in_memory: false
       
+  # Application identifier
+  - name: "APP_ID"
+    source: "app:id"
+      
   # API server port
   - name: "PORT"
     source: "setting"
