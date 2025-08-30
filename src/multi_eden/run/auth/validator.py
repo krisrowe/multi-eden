@@ -71,6 +71,11 @@ def log_token_safely(token: str, context: str = "Token"):
 
 
 
+def _is_firebase_issuer(issuer: str) -> bool:
+    """Check if issuer matches Firebase ID token pattern."""
+    return issuer and issuer.startswith("https://securetoken.google.com/")
+
+
 def validate_token(token: str) -> dict:
     """
     Validates a token and returns the user claims if successful.
@@ -106,9 +111,19 @@ def validate_token(token: str) -> dict:
                 return jwt.decode(token, jwt_key, algorithms=["HS256"], issuer=custom_issuer)
             else:
                 raise AuthenticationError("Custom auth is disabled, but token is a custom token.")
-        else:
-            # Path 2: Firebase Authentication
+        
+        # Path 2: Firebase Authentication
+        elif _is_firebase_issuer(issuer):
+            logger.debug(f"  - Validator Path: Firebase")
+            logger.debug(f"  - Firebase Issuer: {issuer}")
             return auth.verify_id_token(token, clock_skew_seconds=10)
+        
+        # Path 3: Unrecognized issuer
+        else:
+            raise AuthenticationError(
+                f"Unrecognized token issuer: '{issuer}'. "
+                f"Expected custom issuer '{custom_issuer}' or Firebase issuer 'https://securetoken.google.com/<project-id>'"
+            )
 
     except (jwt.InvalidTokenError, auth.InvalidIdTokenError, ValueError) as e:
         logger.debug(f"  - ERROR: Token validation failed: {e}")
