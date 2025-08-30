@@ -22,6 +22,7 @@ setup(
         'firebase-admin>=5.0.0',
         'pydantic>=2.0.0',
         'google-genai>=0.3.0',
+        'google-cloud-secret-manager>=2.0.0',
         'pathlib2;python_version<"3.4"',  # pathlib is built-in in Python 3.4+
     ],
 )
