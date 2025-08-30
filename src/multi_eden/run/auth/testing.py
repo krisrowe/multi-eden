@@ -15,12 +15,13 @@ from .util import (
 
 from multi_eden.run.config.settings import get_setting
 
-# Static Test User Email (used across all test suites)
-STATIC_TEST_USER_EMAIL = f"test-user@static.{get_setting('app-id')}.app"
-
 # Module-level cache for Firebase tokens to avoid redundant API calls
 # Only cache Firebase tokens since custom tokens are generated locally (fast)
 _firebase_token_cache = None
+
+def get_static_test_user_email() -> str:
+    """Get the static test user email address."""
+    return f"test-user@static.{get_setting('app-id')}.app"
 
 def get_static_test_user_token():
     """
@@ -42,7 +43,7 @@ def get_static_test_user_token():
     
     if is_custom_auth_enabled():
         # Custom tokens are generated locally (fast) - no need to cache
-        token = gen_token(STATIC_TEST_USER_EMAIL)
+        token = gen_token(get_static_test_user_email())
         source = AUTH_SOURCE_CUSTOM
     else:
         # Check cache first for Firebase tokens (avoid expensive API calls)
@@ -53,7 +54,7 @@ def get_static_test_user_token():
         
         # Get a real Firebase token for the static user
         auth_info = ensure_firebase_user_exists(
-            email=STATIC_TEST_USER_EMAIL,
+            email=get_static_test_user_email(),
             get_token=True
         )
         token = auth_info['id_token']
@@ -65,7 +66,7 @@ def get_static_test_user_token():
     
     result = {
         "meta": {
-            "email": STATIC_TEST_USER_EMAIL,
+            "email": get_static_test_user_email(),
             "source": source,
             "hash": token_hash
         },
@@ -160,26 +161,26 @@ def delete_static_test_user():
         
         # Try to get user by email
         try:
-            user = auth.get_user_by_email(STATIC_TEST_USER_EMAIL)
+            user = auth.get_user_by_email(get_static_test_user_email())
             logger.info(f"Found existing static test user: {user.uid} ({user.email})")
             
             # Delete the user
             auth.delete_user(user.uid)
-            logger.info(f"✅ Successfully deleted static test user: {STATIC_TEST_USER_EMAIL}")
+            logger.info(f"✅ Successfully deleted static test user: {get_static_test_user_email()}")
             
             # Clear cached token since user was deleted
             _clear_firebase_token_cache()
             return True
             
         except auth.UserNotFoundError:
-            logger.info(f"ℹ️  Static test user {STATIC_TEST_USER_EMAIL} not found in Firebase - nothing to delete")
+            logger.info(f"ℹ️  Static test user {get_static_test_user_email()} not found in Firebase - nothing to delete")
             
             # Clear cached token just in case
             _clear_firebase_token_cache()
             return True
             
     except Exception as e:
-        logger.error(f"❌ Failed to delete static test user {STATIC_TEST_USER_EMAIL}: {e}")
+        logger.error(f"❌ Failed to delete static test user {get_static_test_user_email()}: {e}")
         return False
 
 def ensure_static_firebase_test_user():

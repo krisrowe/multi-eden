@@ -19,7 +19,7 @@ from firebase_admin import auth, credentials
 
 from multi_eden.run.config.settings import get_setting
 from .exceptions import AuthenticationError, AuthorizationError
-from . import NON_CLOUD_ENV_NAME, CUSTOM_AUTH_BASE_ISSUER
+from . import NON_CLOUD_ENV_NAME, get_custom_auth_base_issuer
 
 # Add the new import for gen_jwt_key
 import secrets
@@ -115,7 +115,7 @@ def gen_token_using_dates(email: str, issuer: str = None, expiration_datetime: d
     
     Args:
         email: User email address
-        issuer: JWT issuer (defaults to CUSTOM_AUTH_BASE_ISSUER)
+        issuer: JWT issuer (defaults to get_custom_auth_base_issuer())
         expiration_datetime: Absolute expiration datetime (defaults to 24 hours from now)
         issued_at: Absolute issue datetime (defaults to now)
         
@@ -123,7 +123,7 @@ def gen_token_using_dates(email: str, issuer: str = None, expiration_datetime: d
         str: Encoded JWT token
     """
     if issuer is None:
-        issuer = CUSTOM_AUTH_BASE_ISSUER
+        issuer = get_custom_auth_base_issuer()
     
     if expiration_datetime is None:
         expiration_datetime = datetime.now(timezone.utc) + timedelta(hours=24)
@@ -158,7 +158,7 @@ def gen_token(email: str, issuer: str = None, expiration_hours: int = 24):
     
     Args:
         email: User email address
-        issuer: JWT issuer (defaults to CUSTOM_AUTH_BASE_ISSUER)
+        issuer: JWT issuer (defaults to get_custom_auth_base_issuer())
         expiration_hours: Token validity in hours (default: 24)
         
     Returns:

@@ -101,9 +101,10 @@ class TestAuthentication:
         self.logger.info("⏰ TESTING VALIDATE_TOKEN FUNCTION EXPIRED TOKEN REJECTION:")
         
         # Create an expired token (issued 2 hours ago, expired 1 hour ago)
+        from multi_eden.run.auth import get_custom_auth_base_issuer
         expired_token = gen_token_using_dates(
             email='test-user@example.com',
-            issuer='https://auth.multi-eden-default.app',
+            issuer=get_custom_auth_base_issuer(),
             issued_at=datetime.now(timezone.utc) - timedelta(hours=2),
             expiration_datetime=datetime.now(timezone.utc) - timedelta(hours=1)
         )

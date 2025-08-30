@@ -9,7 +9,7 @@ from firebase_admin import auth
 
 from multi_eden.run.config.settings import get_setting
 from .config import get_authorization_config
-from . import NON_CLOUD_ENV_NAME, CUSTOM_AUTH_BASE_ISSUER
+from . import NON_CLOUD_ENV_NAME, get_custom_auth_base_issuer
 # Import config.mode here to avoid circular imports
 from .exceptions import AuthenticationError, AuthorizationError, TokenExpiredError, TokenSignatureError, TokenMalformedError, TokenIssuerError
 
@@ -96,7 +96,7 @@ def validate_token(token: str) -> dict:
         # Path 1: Custom JWT Authentication
         # Import provider configuration here to avoid circular imports
         from multi_eden.run.config.providers import is_custom_auth_enabled
-        custom_issuer = CUSTOM_AUTH_BASE_ISSUER
+        custom_issuer = get_custom_auth_base_issuer()
         if (issuer == custom_issuer):
             if is_custom_auth_enabled():
                 jwt_key = get_setting('jwt-secret-key')

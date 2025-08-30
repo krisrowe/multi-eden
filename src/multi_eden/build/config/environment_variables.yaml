@@ -9,16 +9,16 @@
 environment_variables:
   # Provider stubbing controls
   - name: "STUB_AI"
-    source: "setting"
+    source: "environment:stub_ai"
     
   - name: "STUB_DB"
-    source: "setting"
+    source: "environment:stub_db"
     
   - name: "CUSTOM_AUTH_ENABLED" 
-    source: "setting"
+    source: "environment:custom_auth_enabled"
     
   - name: "PROJECT_ID"
-    source: "setting"
+    source: "environment:project_id"
   
   # Test framework API endpoint
   - name: "API_TESTING_URL"
@@ -33,7 +33,6 @@ environment_variables:
       
   # API server port
   - name: "PORT"
-    source: "setting"
-    setting_key: "port"
+    source: "environment:port"
     condition:
       api_in_memory: false

@@ -43,7 +43,7 @@ def load_env(env_name: str, repo_root=None, quiet: bool = False) -> None:
             source_info = "environments.yaml"  # Default source
             
             if env_def.source == "setting":
-                # Auto-derive setting_key: "PROJECT_ID" -> "project_id"
+                # Legacy: Auto-derive setting_key: "PROJECT_ID" -> "project_id"
                 setting_key = env_def.setting_key or env_def.name.lower()
                 
                 value = getattr(settings, setting_key, None)
@@ -57,6 +57,22 @@ def load_env(env_name: str, repo_root=None, quiet: bool = False) -> None:
                     env_value = str(value)
                 
                 source_info = "environments.yaml"
+                
+            elif env_def.source.startswith("environment:"):
+                # Explicit: "environment:field" -> read field from environments.yaml
+                field_name = env_def.source.split(":", 1)[1]
+                
+                value = getattr(settings, field_name, None)
+                if value is None:
+                    continue  # Skip if setting not present
+                    
+                # Transform booleans to lowercase strings
+                if isinstance(value, bool):
+                    env_value = str(value).lower()
+                else:
+                    env_value = str(value)
+                
+                source_info = f"environments.yaml:{field_name}"
                     
             elif env_def.source == "derived":
                 # Check condition first
