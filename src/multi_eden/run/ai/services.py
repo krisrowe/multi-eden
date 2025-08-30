@@ -23,20 +23,21 @@ T = TypeVar('T')
 
 
 def _load_services_config() -> dict:
-    """Load services configuration from the SDK's services.yaml."""
+    """Load services configuration from the app's app.yaml."""
     try:
-        # Look for services.yaml in the current package directory
-        current_file = Path(__file__)
-        services_path = current_file.parent / 'services.yaml'
+        # Import here to avoid circular imports
+        from multi_eden.run.config.settings import _load_app_config
         
-        if not services_path.exists():
-            raise RuntimeError(f"Services configuration file not found at {services_path}")
+        app_config = _load_app_config()
         
-        with open(services_path, 'r', encoding='utf-8') as f:
-            import yaml
-            return yaml.safe_load(f) or {}
+        if 'services' not in app_config:
+            raise RuntimeError("No 'services' section found in config/app.yaml")
+            
+        # Wrap in the expected format
+        return {'services': app_config['services']}
+        
     except Exception as e:
-        raise RuntimeError(f"Failed to load services configuration: {e}")
+        raise RuntimeError(f"Failed to load services configuration from app.yaml: {e}")
 
 
 def get_service_default_model(service_name: str) -> str:
@@ -62,7 +63,7 @@ def get_service_default_model(service_name: str) -> str:
         raise RuntimeError(
             f"No default model configured for service '{service_name}'. "
             f"Available services: {', '.join(available_services) if available_services else 'none'}. "
-            f"Please ensure the SDK's services.yaml contains a 'services.{service_name}.default_model' setting."
+            f"Please ensure config/app.yaml contains a 'services.{service_name}.default_model' setting."
         )
     
     return default_model
@@ -91,7 +92,7 @@ def get_prompt(service_name: str) -> str:
         raise RuntimeError(
             f"Prompt template for service '{service_name}' not found. "
             f"Available services: {', '.join(available_services) if available_services else 'none'}. "
-            f"Please ensure the SDK's services.yaml contains a 'services.{service_name}.prompt' setting."
+            f"Please ensure config/app.yaml contains a 'services.{service_name}.prompt' setting."
         )
     
     return prompt_template
@@ -118,7 +119,7 @@ def get_service_config(service_name: str) -> dict:
         raise RuntimeError(
             f"Service '{service_name}' not found. "
             f"Available services: {', '.join(available_services) if available_services else 'none'}. "
-            f"Please ensure the SDK's services.yaml contains a 'services.{service_name}' section."
+            f"Please ensure config/app.yaml contains a 'services.{service_name}' section."
         )
     
     return service_config
