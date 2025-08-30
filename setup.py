@@ -4,6 +4,13 @@ setup(
     version='0.1.0',
     package_dir={'': 'src'},
     packages=find_packages(where='src'),
+    include_package_data=True,
+    package_data={
+        'multi_eden': [
+            'build/config/*.yaml',
+            'run/config/*.yaml',
+        ],
+    },
     description='A reusable Python library.',
     author='Your Name',
     author_email='youremail@example.com',
