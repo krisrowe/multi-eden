@@ -114,13 +114,9 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
     
     # Test paths and override message are now shown in configuration environment table
     
-    # Load environment configuration
+    # Environment configuration already loaded by decorator
     if config_env:
         try:
-            from multi_eden.build.config.loading import load_env
-            load_env(config_env)
-            # Environment loaded successfully
-            
             # Show all configuration tables (both normal and --show-config)
             _show_all_configuration_tables(config_env)
             
@@ -203,10 +199,6 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
         print(f"❌ Tests failed with exit code {result.returncode}")
     
     return result
-
-
-# Removed ugly load_environment_variables method - now using load_env() directly
-
 
 def get_test_paths_from_config(suite):
     """
