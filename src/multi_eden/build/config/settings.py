@@ -20,6 +20,7 @@ class Settings:
     """Build-time configuration for all app settings."""
     
     # Environment identification
+    app_id: Optional[str] = None  # Application identifier for service names
     project_id: Optional[str] = None  # If set, indicates cloud environment
     
     # API configuration  
@@ -39,7 +40,7 @@ class Settings:
     port: Optional[int] = None  # API port override
     
     @classmethod
-    def from_config_env(cls, config_env: str, app_config_path: str = "config/private/environments.yaml") -> 'Settings':
+    def from_config_env(cls, config_env: str, app_config_path: str = "config/environments.yaml") -> 'Settings':
         """Load unified settings by merging SDK defaults with app-specific overrides."""
         
         # Load SDK default environments
@@ -77,7 +78,13 @@ class Settings:
         if 'stub_db' not in env_config:
             raise ValueError(f"Missing required setting 'stub_db' in environment '{config_env}'")
             
+        # Get app_id from app config
+        from ..config.loading import _get_app_config
+        app_config = _get_app_config()
+        app_id = app_config.get('id', 'multi-eden-app')
+        
         settings = cls(
+            app_id=app_id,
             project_id=env_config.get('project_id'),  # Optional for local environments
             api_in_memory=env_config['api_in_memory'],
             custom_auth_enabled=env_config['custom_auth_enabled'],
@@ -143,7 +150,7 @@ class Settings:
         # 2. Cloud environment (project_id present) - get actual Cloud Run URL
         if self.project_id:
             from multi_eden.internal.gcp import get_cloud_run_service_url
-            service_name = f"{self.project_id}-api"
+            service_name = f"{self.app_id}-api"
             return get_cloud_run_service_url(self.project_id, service_name)
         
         # 3. Local execution (no project_id) - only if local setting is enabled

@@ -1,0 +1,10 @@
+# Multi-Eden Project Environment Configuration
+# Provides project_id values for cloud environments
+# All other settings inherit from SDK defaults
+
+environments:
+  dev:
+    project_id: "ai-food-log-dev"
+    
+  prod:
+    project_id: "ai-food-log-prod-001"
