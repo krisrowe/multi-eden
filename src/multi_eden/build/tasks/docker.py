@@ -127,18 +127,26 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
         # Get environment variable names from manifest
         env_var_names = env_vars_manifest.get_env_var_names()
         
+        # Follow Cloud Run conventions: container listens on standard port 8000
+        # Cloud Run will set PORT automatically, local Docker should mimic this
+        container_internal_port = 8000
+        
         # Build Docker run command
         cmd_parts = [
             "docker run -d",
             f"--name {container_name}",
-            f"-p {port}:8000",  # Use port 8000 to match the container
+            f"-p {port}:{container_internal_port}",  # Map host port to standard container port
             f"-e CONFIG_ENV={config_env}"
         ]
         
         # Add environment variables from manifest
         for env_var in env_var_names:
             if env_var in os.environ:
-                cmd_parts.append(f"-e {env_var}={os.environ[env_var]}")
+                # Override PORT to match container internal port (Cloud Run convention)
+                if env_var == "PORT":
+                    cmd_parts.append(f"-e {env_var}={container_internal_port}")
+                else:
+                    cmd_parts.append(f"-e {env_var}={os.environ[env_var]}")
         
         # Add secrets environment variables
         secret_env_vars = ["CUSTOM_AUTH_SALT", "ALLOWED_USER_EMAILS", "GEMINI_API_KEY"]
