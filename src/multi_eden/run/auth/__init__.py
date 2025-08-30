@@ -7,10 +7,10 @@ This module provides shared authentication functionality for:
 # Constant used as fallback project ID when cloud services are not enabled
 NON_CLOUD_ENV_NAME = "non-cloud"
 
-from multi_eden.run.config.settings import get_app_id
+from multi_eden.run.config.settings import get_setting
 
 # Constant used as fallback project ID when cloud services are not enabled
 NON_CLOUD_ENV_NAME = "non-cloud"
 
 # Base issuer URL for custom JWT authentication
-CUSTOM_AUTH_BASE_ISSUER = f"https://auth.{get_app_id()}.app"
+CUSTOM_AUTH_BASE_ISSUER = f"https://auth.{get_setting('app-id')}.app"

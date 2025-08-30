@@ -14,12 +14,13 @@ from ..secrets.manifest import load_secrets_manifest
 logger = logging.getLogger(__name__)
 
 
-def load_env(env_name: str, repo_root=None) -> None:
+def load_env(env_name: str, repo_root=None, quiet: bool = False) -> None:
     """Load configuration and set up all environment variables for build tasks.
     
     Args:
         env_name: Environment name (e.g., 'dev', 'prod', 'unit-testing')
         repo_root: Repository root path (unused, kept for compatibility)
+        quiet: If True, suppress environment variable display output
     """
     from pathlib import Path
     from .settings import load_settings
@@ -77,23 +78,25 @@ def load_env(env_name: str, repo_root=None) -> None:
                 os.environ.setdefault(env_def.name, env_value)
                 env_vars_info.append((env_def.name, env_value, source_info))
         
-        # Display environment variables table
-        if env_vars_info:
-            print("\n" + "=" * 85)
-            print("🔧 ENVIRONMENT VARIABLES")
-            print("=" * 85)
-            print(f"{'VARIABLE':<25} {'VALUE':<34} {'SOURCE':<19}")
-            print("-" * 85)
+        # Display environment variables table (only if not quiet)
+        if env_vars_info and not quiet:
+            import sys
+            print("\n" + "=" * 85, file=sys.stderr)
+            print("🔧 ENVIRONMENT VARIABLES", file=sys.stderr)
+            print("=" * 85, file=sys.stderr)
+            print(f"{'VARIABLE':<25} {'VALUE':<34} {'SOURCE':<19}", file=sys.stderr)
+            print("-" * 85, file=sys.stderr)
             for env_var, value, source in env_vars_info:
                 # Truncate long values for display (max 34 chars)
                 display_value = value if len(value) <= 34 else value[:31] + "..."
                 # Use source as-is (already descriptive)
                 display_source = source
-                print(f"{env_var:<25} {display_value:<34} {display_source:<19}")
-            print("=" * 85)
+                print(f"{env_var:<25} {display_value:<34} {display_source:<19}", file=sys.stderr)
+            print("=" * 85, file=sys.stderr)
         
-        if not settings.project_id:
-            print(f"   ✅ No project ID - using local configuration")
+        if not settings.project_id and not quiet:
+            import sys
+            print(f"   ✅ No project ID - using local configuration", file=sys.stderr)
         
         # Set up secrets environment
         _setup_secrets_environment(settings, env_name)
@@ -114,23 +117,35 @@ def load_env(env_name: str, repo_root=None) -> None:
 
 def _setup_secrets_environment(settings: Dict[str, Any], config_env: str) -> None:
     """Set up environment variables for secrets based on execution context."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     secrets_manifest = load_secrets_manifest()
     
+    logger.debug(f"Setting up secrets for {config_env}, settings: {settings}")
+    
     for secret in secrets_manifest:
+        logger.debug(f"Checking secret {secret.name}")
+        
         # Check if secret is required for current settings
         if not _is_secret_required(secret, settings):
-            pass  # Skipping secret - not required for current settings
+            logger.debug(f"Skipping secret {secret.name} - not required for current settings")
             continue
             
+        logger.debug(f"Secret {secret.name} is required")
+        
         # Skip secrets without local default when API is out-of-process
         api_in_memory = settings.api_in_memory
         if not secret.local_default and not api_in_memory:
-            pass  # Skipping secret - no local default and API is out-of-process
+            logger.debug(f"Skipping secret {secret.name} - no local default and API is out-of-process")
             continue
             
+        logger.debug(f"Setting up secret {secret.name}")
+        
         # Set up the environment variable
         try:
             _setup_secret_env_var(secret, settings, config_env)
+            logger.debug(f"Successfully set up secret {secret.name}")
         except Exception as e:
             print(f"❌ Failed to setup secret {secret.name}: {e}")
             raise

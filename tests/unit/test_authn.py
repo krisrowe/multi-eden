@@ -13,7 +13,7 @@ from multi_eden.run.auth.testing import get_static_test_user_token
 from multi_eden.run.auth.util import gen_token, gen_token_using_dates
 from multi_eden.run.auth.validator import validate_token
 from multi_eden.run.auth.exceptions import AuthenticationError, TokenExpiredError, TokenSignatureError, TokenMalformedError, TokenIssuerError
-from multi_eden.run.config import get_secret
+from multi_eden.run.config import get_setting
 
 
 class TestAuthentication:
@@ -62,7 +62,7 @@ class TestAuthentication:
         valid_token = gen_token(email)
         
         # Get the JWT key for signature verification
-        jwt_key = get_secret('jwt-secret-key')
+        jwt_key = get_setting('jwt-secret-key')
         
         # Verify the token signature is valid
         try:

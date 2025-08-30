@@ -13,10 +13,10 @@ from .util import (
     AUTH_SOURCE_FIREBASE
 )
 
-from multi_eden.run.config.settings import get_app_id
+from multi_eden.run.config.settings import get_setting
 
 # Static Test User Email (used across all test suites)
-STATIC_TEST_USER_EMAIL = f"test-user@static.{get_app_id()}.app"
+STATIC_TEST_USER_EMAIL = f"test-user@static.{get_setting('app-id')}.app"
 
 # Module-level cache for Firebase tokens to avoid redundant API calls
 # Only cache Firebase tokens since custom tokens are generated locally (fast)

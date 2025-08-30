@@ -29,5 +29,5 @@ modes:
     description: "API tests via HTTP (focus on network interface)"
     tests:
       paths: ["api", "providers"]
-    default-env: "local-server"
+    default-env: "local"
     in-memory-api: false

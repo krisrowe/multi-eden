@@ -26,3 +26,10 @@ environment_variables:
     method: "derive_api_url"
     condition:
       api_in_memory: false
+      
+  # API server port
+  - name: "PORT"
+    source: "setting"
+    setting_key: "port"
+    condition:
+      api_in_memory: false

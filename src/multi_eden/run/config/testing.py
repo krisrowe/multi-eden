@@ -314,8 +314,8 @@ def get_api_url() -> str:
             client = run_v2.ServicesClient()
             
             # Get the Cloud Run service URL using configurable app ID
-            from .settings import get_app_id
-            app_id = get_app_id()
+            from .settings import get_setting
+            app_id = get_setting('app-id')
             service_name = f"projects/{project_id}/locations/us-central1/services/{app_id}-api"
             service = client.get_service(name=service_name)
             api_url = service.uri

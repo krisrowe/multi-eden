@@ -5,8 +5,8 @@ Provides environment-specific configuration for auth and data settings.
 Provides mode-specific configuration for testing and operational scenarios.
 """
 
-from .secrets import Authorization, get_authorization_config, get_secret
-from .settings import get_authorization, get_project_id, get_providers, is_secrets_available, is_cloud_enabled, NotConfiguredForFirebaseException
+from .settings import get_setting, is_setting_available, is_project_id_set, is_cloud_run, get_project_id, is_secrets_available, get_authorization, print_settings
+from ..auth.config import Authorization, get_authorization_config, set_authorization, reset_authorization
 from .testing import get_mode, is_mode_available
 from .providers import is_db_in_memory, is_custom_auth_enabled, is_ai_mocked, get_provider_config
 
@@ -34,15 +34,16 @@ class _ConfigProxy:
 
 __all__ = [
     'Authorization',
-    'get_authorization_config',
-    'get_secret',
-    'get_authorization',
+    'get_authorization_config', 
+    'set_authorization',
+    'reset_authorization',
+    'get_setting',
+    'is_project_id_set',
+    'is_cloud_run',
     'get_project_id',
-    'is_cloud_enabled',
-    'NotConfiguredForFirebaseException',
-    'get_mode',
-    'get_providers',
     'is_secrets_available',
+    'get_authorization',
+    'get_mode',
     'is_mode_available',
     'is_db_in_memory',
     'is_custom_auth_enabled',

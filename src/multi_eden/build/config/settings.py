@@ -83,7 +83,8 @@ class Settings:
             custom_auth_enabled=env_config['custom_auth_enabled'],
             stub_ai=env_config['stub_ai'],
             stub_db=env_config['stub_db'],
-            local=env_config.get('local', False)  # Optional, defaults to False for security
+            local=env_config.get('local', False),  # Optional, defaults to False for security
+            port=env_config.get('port')  # Optional port override
         )
         
         # Log what was loaded
@@ -149,7 +150,7 @@ class Settings:
         if not self.local:
             raise RuntimeError("Cannot derive API URL: no project_id for cloud and local execution not enabled")
         
-        # Local execution - use port if configured, otherwise default localhost
+        # Local execution - use port if configured, otherwise no port specified
         if self.port:
             return f"http://localhost:{self.port}"
         else:

@@ -24,18 +24,18 @@ tasks:
   docker_cleanup:
     env: local-docker
   
-  # Local server tasks default to local-server environment
+  # Local server tasks default to local environment
   api_start:
-    env: local-server
+    env: local
   
   api_stop:
-    env: local-server
+    env: local
   
   api_status:
-    env: local-server
+    env: local
   
   api_restart:
-    env: local-server
+    env: local
   
   # Test tasks can specify their own defaults
   test:

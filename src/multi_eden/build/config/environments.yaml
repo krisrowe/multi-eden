@@ -34,6 +34,7 @@ environments:
     stub_ai: true
     stub_db: true
     local: true        # Allow local override secrets
+    port: 8000         # API server port
     
   # Local with AI - out-of-process API + real AI (port determined by task)
   local-ai:
@@ -42,6 +43,7 @@ environments:
     stub_ai: false     # ai_provider: "real"
     stub_db: true      # data_provider: "tinydb"
     local: true        # Allow local override secrets
+    port: 8000         # API server port
     
   # Local Docker - out-of-process API in Docker container on port 8001
   local-docker:

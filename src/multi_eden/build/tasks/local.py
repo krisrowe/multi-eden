@@ -207,33 +207,50 @@ def check_port_available(port, check_listening=False, max_retries=10, retry_inte
 
 @task(help={
     'port': 'Port to run the API server on (default: 8000)',
-    'env': 'Configuration environment to use (default: local-server)',
+    'env': 'Configuration environment to use (default: local)',
     'background': 'Run in background (default: True)'
 })
-def api_start(ctx, port=8000, env="local-server", background=True):
+def api_start(ctx, port=None, env="local", background=True):
     """Start the API server."""
     try:
-        # Check if there are already Python processes running core serve
+        # Get repository root and load API configuration for process detection
+        repo_root = get_repo_root()
+        try:
+            from multi_eden.build.config.app_config import get_api_module_info
+            api_info = get_api_module_info(repo_root)
+            module_spec = api_info['module']
+            module_name = api_info['module_name']
+            serve_args = ' '.join(api_info['serve_args'])
+        except Exception as e:
+            print(f"❌ Failed to load API configuration: {e}")
+            print(f"💡 Ensure config/app.yaml exists with proper 'api' configuration")
+            print(f"💡 Run 'invoke init-app' to create proper configuration")
+            return False
+        
         print("🔍 Checking for existing server processes...")
-        # Look for uvicorn processes since that's what actually runs the server
-        cmd = "pgrep -f 'uvicorn.*core.api:app'"
+        # Look for uvicorn processes with the configured module
+        import os
+        current_pid = os.getpid()
+        cmd = f"pgrep -f '^[^ ]*python[^ ]* -m uvicorn.*{module_spec}'"
         result = run_command(cmd, check=False, capture_output=True)
         
         if result.returncode == 0 and result.stdout.strip():
-            existing_pids = result.stdout.strip().split('\n')
-            print(f"❌ Found {len(existing_pids)} existing uvicorn process(es): {existing_pids}")
-            print("💡 Please stop existing servers first with 'invoke api-stop'")
-            return False
+            existing_pids = [pid for pid in result.stdout.strip().split('\n') if pid.strip()]
+            if existing_pids:  # Only report if there are actual PIDs after filtering
+                print(f"❌ Found {len(existing_pids)} existing uvicorn process(es): {existing_pids}")
+                print("💡 Please stop existing servers first with 'invoke api-stop'")
+                return False
         
-        # Also check for the parent python process
-        cmd = "pgrep -f 'python.*core serve'"
+        # Also check for the parent python process running the configured module
+        cmd = f"pgrep -f '^[^ ]*python[^ ]* -m {module_name} {serve_args}'"
         result = run_command(cmd, check=False, capture_output=True)
         
         if result.returncode == 0 and result.stdout.strip():
-            existing_pids = result.stdout.strip().split('\n')
-            print(f"❌ Found {len(existing_pids)} existing python process(es): {existing_pids}")
-            print("💡 Please stop existing servers first with 'invoke api-stop'")
-            return False
+            existing_pids = [pid for pid in result.stdout.strip().split('\n') if pid.strip()]
+            if existing_pids:  # Only report if there are actual PIDs after filtering
+                print(f"❌ Found {len(existing_pids)} existing python process(es): {existing_pids}")
+                print("💡 Please stop existing servers first with 'invoke api-stop'")
+                return False
         
         print("✅ No existing server processes found")
         
@@ -244,10 +261,22 @@ def api_start(ctx, port=8000, env="local-server", background=True):
         
         # Get repository root and virtual environment
         repo_root = get_repo_root()
-        venv_python = repo_root / "core" / "venv" / "bin" / "python"
         
+        # Load API configuration to get venv path
+        try:
+            from multi_eden.build.config.app_config import get_api_module_info
+            api_info = get_api_module_info(repo_root)
+            venv_path = api_info['venv_path']
+        except Exception as e:
+            print(f"❌ Failed to load API configuration: {e}")
+            print(f"💡 Ensure config/app.yaml exists with proper 'api' configuration")
+            print(f"💡 Run 'invoke init-app' to create proper configuration")
+            return False
+        
+        venv_python = repo_root / venv_path / "bin" / "python"
         if not venv_python.exists():
-            print(f"❌ Virtual environment not found at {venv_python}")
+            print(f"❌ Virtual environment not found at {repo_root / venv_path}")
+            print(f"💡 Check your config/app.yaml api.venv_path setting")
             return False
         
         # Load environment configuration
@@ -261,54 +290,83 @@ def api_start(ctx, port=8000, env="local-server", background=True):
         
         # Set environment variables
         env_vars = os.environ.copy()
-        env_vars["PYTHONPATH"] = str(repo_root / "core")
         
-        # Build the command
-        cmd = f"{venv_python} -m core serve --config-env={env}"
+        # Override PORT if explicitly provided as parameter
+        if port is not None:
+            env_vars["PORT"] = str(port)
+        
+        # Set PYTHONPATH based on API configuration
+        working_dir = api_info.get('working_dir', '.')
+        if working_dir == '.':
+            pythonpath = str(repo_root)
+        else:
+            pythonpath = str(repo_root / working_dir)
+        env_vars["PYTHONPATH"] = pythonpath
+        
+        # Build the command using API configuration
+        serve_command = ' '.join(api_info['serve_args'])
+        cmd = f"{venv_python} -m {module_name} {serve_command} --config-env={env}"
         
         print(f"🚀 Starting API server...")
         print(f"📁 Working directory: {repo_root}")
         print(f"🔧 Command: {cmd}")
-        print(f"🌐 Port: {port}")
         
-        # Start in background with proper process management
+        # Start server and show startup output, then background
         result = subprocess.Popen(
             cmd,
             shell=True,
             env=env_vars,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Combine stderr into stdout
             text=True,
             preexec_fn=os.setsid if hasattr(os, 'setsid') else None  # Create new process group
         )
         
-        # Wait a moment to check if it started successfully
-        time.sleep(2)
+        # Show startup output until server is ready
+        startup_lines = []
+        server_ready = False
         
-        if result.poll() is None:
-            # Process is running, now check if it's actually listening on the port
-            print("⏳ Waiting for server to start listening...")
+        try:
+            while True:
+                line = result.stdout.readline()
+                if not line:  # Process ended
+                    break
+                    
+                startup_lines.append(line.rstrip())
+                print(line.rstrip())  # Show runtime config and startup info
+                
+                # Check if server is ready
+                if "Uvicorn running on" in line or "Application startup complete" in line:
+                    server_ready = True
+                    break
+                    
+                # Safety check - don't wait forever
+                if len(startup_lines) > 50:
+                    break
+                    
+        except KeyboardInterrupt:
+            print("\n❌ Server startup interrupted")
+            result.terminate()
+            return False
             
-            # Poll for server to start listening (up to 30 seconds)
-            if check_port_available(port, check_listening=True, max_retries=30, retry_interval=1):
-                print("✅ API server started successfully in background")
-                print(f"🌐 API running on http://localhost:{port}")
-                print(f"📝 Process ID: {result.pid}")
-                print("💡 Use 'invoke api-stop' to stop the server")
-                
-                # Save PID to a file for reliable stopping
-                if save_server_pid(result.pid):
-                    print(f"💾 PID {result.pid} saved for future reference")
-                else:
-                    print(f"⚠️  Warning: Could not save PID {result.pid}")
-                
-                return True
+        if server_ready:
+            print("✨ Server startup complete - running in background")
+            print(f"🌐 API available at: http://localhost:{env_vars.get('PORT', '8000')}")
+            print(f"📝 Process ID: {result.pid}")
+            print("💡 Use 'invoke api-stop' to stop the server")
+            
+            # Save PID to a file for reliable stopping
+            if save_server_pid(result.pid):
+                print(f"💾 PID {result.pid} saved for future reference")
             else:
-                print("❌ API server process started but not listening on port")
-                result.terminate()
-                return False
+                print(f"⚠️  Warning: Could not save PID {result.pid}")
+            
+            return True
         else:
-            print("❌ API server failed to start")
+            print("❌ Server failed to start or startup output not detected")
+            if result.poll() is not None:
+                print(f"❌ Process exited with code: {result.returncode}")
+            result.terminate()
             return False
             
     except Exception as e:
@@ -318,153 +376,46 @@ def api_start(ctx, port=8000, env="local-server", background=True):
 
 @task
 def api_stop(ctx):
-    """Stop the API server."""
-    try:
-        print("🛑 Stopping API server...")
-        
-        # Try to stop using saved PID first
-        pid = get_server_pid()
-        if pid:
-            try:
-                # Try graceful termination first
-                os.kill(pid, signal.SIGTERM)
-                print("⏳ Waiting for graceful shutdown...")
-                
-                # Poll for process to stop (up to 15 seconds)
-                for attempt in range(15):
-                    if not is_process_running(pid):
-                        break
-                    time.sleep(1)
-                
-                # Check if process is still running
-                if is_process_running(pid):
-                    print("🔄 Process still running, force killing...")
-                    os.kill(pid, signal.SIGKILL)
-                    
-                    # Poll for process to stop (up to 10 seconds)
-                    for attempt in range(10):
-                        if not is_process_running(pid):
-                            break
-                        time.sleep(1)
-                
-                # Wait for port to be released
-                print("⏳ Waiting for port to be released...")
-                # Poll until port is released or max retries reached
-                for attempt in range(20):  # Wait up to 20 seconds
-                    if not check_port_available(8000, check_listening=True):
-                        print("✅ API server stopped gracefully")
-                        clear_server_pid()
-                        return True
-                    time.sleep(1)
-                
-                print("⚠️  Port still appears to be in use after 20 seconds")
-                clear_server_pid()
-                return False
-                    
-            except (ProcessLookupError, PermissionError):
-                print("⚠️  Could not stop process by PID, trying alternative method...")
-        
-        # Fallback: Find and kill ALL Python processes running core serve
-        print("🔍 Looking for Python processes running core serve...")
-        
-        # First, try to find all such processes
-        cmd = "pgrep -f 'python.*core serve'"
-        result = run_command(cmd, check=False, capture_output=True)
-        
-        if result.returncode == 0 and result.stdout.strip():
-            pids = result.stdout.strip().split('\n')
-            print(f"🔍 Found {len(pids)} process(es) to stop: {pids}")
+    """Stop the API server with graceful shutdown and reliable fallback."""
+    print("🛑 Stopping API server...")
+    
+    # Step 1: Try graceful shutdown using saved PID
+    pid = get_server_pid()
+    if pid and is_process_running(pid):
+        try:
+            print(f"🔄 Gracefully stopping process {pid}...")
+            os.kill(pid, signal.SIGTERM)
             
-            # Kill each process
-            for pid_str in pids:
-                if pid_str.strip().isdigit():
-                    try:
-                        pid_int = int(pid_str.strip())
-                        print(f"🛑 Stopping process {pid_int}...")
-                        os.kill(pid_int, signal.SIGTERM)
-                    except (ValueError, ProcessLookupError, PermissionError) as e:
-                        print(f"⚠️  Could not stop process {pid_str}: {e}")
-            
-            # Wait a moment for processes to stop
-            time.sleep(3)
-            
-            # Force kill any remaining processes
-            cmd = "pkill -9 -f 'python.*core serve'"
-            result = run_command(cmd, check=False)
-            
-            if result.returncode == 0:
-                print("✅ All processes stopped using alternative method")
-                clear_server_pid()
-                
-                # Wait for port to be released
-                print("⏳ Waiting for port to be released...")
-                # Poll until port is released or max retries reached
-                for attempt in range(20):  # Wait up to 20 seconds
-                    if not check_port_available(8000, check_listening=True):
-                        print("✅ Port released successfully")
-                        return True
-                    time.sleep(1)
-                
-                print("⚠️  Port still appears to be in use after 20 seconds")
-                return False
-            else:
-                print("⚠️  Could not stop all processes")
-                return False
-        else:
-            print("ℹ️  No Python processes running core serve found")
-            
-        # Also check for uvicorn processes
-        print("🔍 Looking for uvicorn processes...")
-        cmd = "pgrep -f 'uvicorn.*core.api:app'"
-        result = run_command(cmd, check=False, capture_output=True)
-        
-        if result.returncode == 0 and result.stdout.strip():
-            pids = result.stdout.strip().split('\n')
-            print(f"🔍 Found {len(pids)} uvicorn process(es) to stop: {pids}")
-            
-            # Kill each uvicorn process
-            for pid_str in pids:
-                if pid_str.strip().isdigit():
-                    try:
-                        pid_int = int(pid_str.strip())
-                        print(f"🛑 Stopping uvicorn process {pid_int}...")
-                        os.kill(pid_int, signal.SIGTERM)
-                    except (ValueError, ProcessLookupError, PermissionError) as e:
-                        print(f"⚠️  Could not stop uvicorn process {pid_str}: {e}")
-            
-            # Wait a moment for processes to stop
-            time.sleep(3)
-            
-            # Force kill any remaining uvicorn processes
-            cmd = "pkill -9 -f 'uvicorn.*core.api:app'"
-            result = run_command(cmd, check=False)
-            
-            if result.returncode == 0:
-                print("✅ All uvicorn processes stopped")
-                clear_server_pid()
-                
-                # Wait for port to be released
-                print("⏳ Waiting for port to be released...")
-                # Poll until port is released or max retries reached
-                for attempt in range(20):  # Wait up to 20 seconds
-                    if not check_port_available(8000, check_listening=True):
-                        print("✅ Port released successfully")
-                        return True
-                    time.sleep(1)
-                
-                print("⚠️  Port still appears to be in use after 20 seconds")
-                return False
-            else:
-                print("⚠️  Could not stop all uvicorn processes")
-                return False
-        else:
-            print("ℹ️  No uvicorn processes found")
-            clear_server_pid()
-            return True
-            
-    except Exception as e:
-        print(f"❌ Failed to stop API server: {e}")
-        return False
+            # Wait up to 5 seconds for graceful shutdown
+            for _ in range(5):
+                if not is_process_running(pid):
+                    print("✅ Server stopped gracefully")
+                    clear_server_pid()
+                    return True
+                time.sleep(1)
+        except (ProcessLookupError, PermissionError):
+            pass
+    
+    # Step 2: Reliable fallback - kill ALL matching processes aggressively
+    print("🔄 Using reliable fallback method...")
+    
+    # First try SIGTERM
+    subprocess.run(["pkill", "-TERM", "-f", "core serve"], capture_output=True)
+    time.sleep(2)
+    
+    # Then force kill any remaining
+    result = subprocess.run(["pkill", "-KILL", "-f", "core serve"], capture_output=True)
+    
+    # Also kill any python processes that might be lingering
+    subprocess.run(["pkill", "-KILL", "-f", "python.*serve"], capture_output=True)
+    
+    print("✅ All server processes forcefully stopped")
+    
+    # Clean up PID file
+    clear_server_pid()
+    
+    print("✅ API server stop complete")
+    return True
 
 
 @task
@@ -506,7 +457,7 @@ def api_status(ctx):
 
 
 @task
-def api_restart(ctx, port=8000, env="local-server"):
+def api_restart(ctx, port=None, env="local"):
     """Restart the API server."""
     try:
         print("🔄 Restarting API server...")

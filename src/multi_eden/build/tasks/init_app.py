@@ -50,11 +50,40 @@ def _validate_repo_structure(repo_root: Path) -> List[str]:
     if not (repo_root / ".git").exists():
         issues.append("❌ Not in a git repository root")
     
-    # Check for core folder
-    if not (repo_root / "core").exists():
-        issues.append("❌ Missing 'core' folder - not a Multi-Eden app")
+    # Check for app.yaml with API configuration
+    app_yaml = repo_root / "config" / "app.yaml"
+    if not app_yaml.exists():
+        issues.append("❌ Missing config/app.yaml - not a Multi-Eden app")
+    else:
+        # Validate API configuration exists
+        import yaml
+        try:
+            with open(app_yaml) as f:
+                app_config = yaml.safe_load(f)
+                if not app_config.get('api'):
+                    issues.append("❌ Missing 'api' configuration in config/app.yaml")
+        except Exception as e:
+            issues.append(f"❌ Invalid config/app.yaml: {e}")
     
     return issues
+
+
+def _load_api_config(repo_root: Path) -> Dict[str, Any]:
+    """Load API configuration from app.yaml or return defaults."""
+    app_yaml = repo_root / "config" / "app.yaml"
+    if app_yaml.exists():
+        import yaml
+        try:
+            with open(app_yaml) as f:
+                app_config = yaml.safe_load(f)
+                api_config = app_config.get('api', {})
+                if api_config:
+                    return api_config
+        except Exception:
+            pass
+    
+    # No fallback - force proper configuration
+    raise ValueError("Missing 'api' configuration in config/app.yaml")
 
 
 def _check_existing_config(config_dir: Path) -> Optional[Dict[str, Any]]:
@@ -96,13 +125,22 @@ def _generate_secret_value(secret_type: str, app_id: str) -> str:
         return secrets.token_urlsafe(32)
 
 
-def _create_app_yaml(config_dir: Path, app_id: str, registry_project_id: str) -> None:
-    """Create config/app.yaml with registry configuration."""
+def _create_app_yaml(config_dir: Path, app_id: str, registry_project_id: str, api_module: str = None) -> None:
+    """Create config/app.yaml with registry and API configuration."""
+    # Default API module based on app structure
+    if not api_module:
+        api_module = f"{app_id.replace('-', '_')}.api:app"
+    
     app_yaml_content = f"""# Multi-Eden Application Configuration
 id: {app_id}
 registry:
   project_id: {registry_project_id}
   tag: {app_id}
+
+# API Server Configuration
+api:
+  # ASGI application specification (module.path:variable)
+  module: "{api_module}"
 """
     
     with open(config_dir / "app.yaml", "w") as f:
@@ -188,9 +226,9 @@ def _copy_provider_tests(repo_root: Path, sdk_root: Path) -> None:
         shutil.copytree(src_providers, dst_providers)
 
 
-def _create_base_api(core_dir: Path) -> None:
-    """Create core/api.py with base health/system endpoints."""
-    api_content = '''"""
+def _create_base_api(api_dir: Path, api_module_name: str) -> None:
+    """Create api.py with base health/system endpoints."""
+    api_content = f'''"""
 FastAPI application with Multi-Eden base endpoints.
 """
 
@@ -215,19 +253,19 @@ class API(BaseAPI):
 app = API().app
 '''
     
-    with open(core_dir / "api.py", "w") as f:
+    with open(api_dir / "api.py", "w") as f:
         f.write(api_content)
 
 
-def _create_api_test(tests_dir: Path) -> None:
+def _create_api_test(tests_dir: Path, api_module_name: str) -> None:
     """Create tests/unit/test_api.py for system endpoint testing."""
-    test_content = '''"""
+    test_content = f'''"""
 Test API system endpoints.
 """
 
 import pytest
 from fastapi.testclient import TestClient
-from core.api import app
+from {api_module_name}.api import app
 
 
 class TestSystemEndpoints:
@@ -366,9 +404,14 @@ def _create_init_plan(
     if not gemini_api_key:
         gemini_api_key = _generate_secret_value('gemini', app_id)
     
+    # Load API configuration to determine structure
+    api_config = _load_api_config(repo_root)
+    api_module = api_config.get('module', 'core.api:app')
+    api_module_name = api_module.split('.')[0]  # Extract module name (e.g., 'core' from 'core.api:app')
+    
     config_dir = repo_root / "config"
     tests_dir = repo_root / "tests"
-    core_dir = repo_root / "core"
+    api_dir = repo_root / api_module_name
     
     planned_actions = []
     
@@ -405,10 +448,11 @@ def _create_init_plan(
         planned_actions.append(ActionResult("tests/providers", "EXISTS", "Already exists"))
     
     # Plan API files
-    if not (core_dir / "api.py").exists():
-        planned_actions.append(ActionResult("core/api.py", "PLANNED", "Will create base API class"))
+    api_file_path = f"{api_module_name}/api.py"
+    if not (api_dir / "api.py").exists():
+        planned_actions.append(ActionResult(api_file_path, "PLANNED", "Will create base API class"))
     else:
-        planned_actions.append(ActionResult("core/api.py", "EXISTS", "Already exists"))
+        planned_actions.append(ActionResult(api_file_path, "EXISTS", "Already exists"))
     
     if not (tests_dir / "unit" / "test_api.py").exists():
         planned_actions.append(ActionResult("tests/unit/test_api.py", "PLANNED", "Will create API tests"))
@@ -470,17 +514,21 @@ def _execute_plan(plan: InitPlan) -> List[ActionResult]:
         # Find SDK root for copying tests
         sdk_root = Path(__file__).parent.parent.parent.parent.parent
         
-        # Create directories
+        # Load API configuration and create directories
+        api_config = _load_api_config(plan.repo_root)
+        api_module = api_config.get('module', 'core.api:app')
+        api_module_name = api_module.split('.')[0]
+        
         config_dir = plan.repo_root / "config"
         tests_dir = plan.repo_root / "tests"
-        core_dir = plan.repo_root / "core"
+        api_dir = plan.repo_root / api_module_name
         
         config_dir.mkdir(exist_ok=True)
         (tests_dir / "unit").mkdir(parents=True, exist_ok=True)
         
         # Create configuration files
         if not (config_dir / "app.yaml").exists():
-            _create_app_yaml(config_dir, plan.app_id, plan.registry_project_id)
+            _create_app_yaml(config_dir, plan.app_id, plan.registry_project_id, api_module)
             results.append(ActionResult("config/app.yaml", "DONE", "Created app configuration"))
         else:
             results.append(ActionResult("config/app.yaml", "SKIPPED", "Already exists"))
@@ -503,14 +551,17 @@ def _execute_plan(plan: InitPlan) -> List[ActionResult]:
             results.append(ActionResult("tests/providers", "SKIPPED", "Already exists"))
         
         # Create API files
-        if not (core_dir / "api.py").exists():
-            _create_base_api(core_dir)
-            results.append(ActionResult("core/api.py", "DONE", "Created base API class"))
+        api_dir.mkdir(exist_ok=True)
+        api_file_path = f"{api_module_name}/api.py"
+        
+        if not (api_dir / "api.py").exists():
+            _create_base_api(api_dir, api_module_name)
+            results.append(ActionResult(api_file_path, "DONE", "Created base API class"))
         else:
-            results.append(ActionResult("core/api.py", "SKIPPED", "Already exists"))
+            results.append(ActionResult(api_file_path, "SKIPPED", "Already exists"))
         
         if not (tests_dir / "unit" / "test_api.py").exists():
-            _create_api_test(tests_dir / "unit")
+            _create_api_test(tests_dir / "unit", api_module_name)
             results.append(ActionResult("tests/unit/test_api.py", "DONE", "Created API tests"))
         else:
             results.append(ActionResult("tests/unit/test_api.py", "SKIPPED", "Already exists"))
@@ -666,5 +717,5 @@ def init_app(c, app_id, dev_project_id, registry_project_id=None, jwt_secret_key
         print(f"\n🎉 Multi-Eden app '{app_id}' initialized successfully!")
         print(f"💡 Next steps:")
         print(f"   1. Run: ./invoke test unit")
-        print(f"   2. Develop your app in the core/ directory")
+        print(f"   2. Develop your app in the {plan.app_id.replace('-', '_')}/ directory")
         print(f"   3. Deploy with: ./invoke deploy dev")

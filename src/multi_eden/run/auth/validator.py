@@ -7,7 +7,8 @@ import jwt
 import yaml
 from firebase_admin import auth
 
-from multi_eden.run.config import get_authorization, get_project_id, is_cloud_enabled, get_secret
+from multi_eden.run.config.settings import get_setting
+from .config import get_authorization_config
 from . import NON_CLOUD_ENV_NAME, CUSTOM_AUTH_BASE_ISSUER
 # Import config.mode here to avoid circular imports
 from .exceptions import AuthenticationError, AuthorizationError, TokenExpiredError, TokenSignatureError, TokenMalformedError, TokenIssuerError
@@ -93,7 +94,7 @@ def validate_token(token: str) -> dict:
         custom_issuer = CUSTOM_AUTH_BASE_ISSUER
         if (issuer == custom_issuer):
             if is_custom_auth_enabled():
-                jwt_key = get_secret('jwt-secret-key')
+                jwt_key = get_setting('jwt-secret-key')
                 logger.debug(f"  - Validator Path: Custom JWT")
                 logger.debug(f"  - Expected Issuer: {custom_issuer}")
                 logger.debug(f"  - Retrieved JWT key (first 8 chars): {jwt_key[:8]}...")
@@ -142,7 +143,7 @@ def authorize_user(email: str):
     """
     try:
         # Get authorization configuration
-        authorization = get_authorization()
+        authorization = get_authorization_config()
         
         # If all authenticated users are allowed, skip email check
         if authorization.all_authenticated_users:

@@ -60,9 +60,10 @@ def should_omit_integration_tests(suite):
     'config_env': 'Configuration environment to use (overrides suite default)',
     'verbose': 'Enable verbose output',
     'test_name': 'Filter to specific test method(s) (e.g., "test_long_name_product" or "test_*")',
-    'show_config': 'Show detailed configuration including partial secret values'
+    'show_config': 'Show detailed configuration including partial secret values',
+    'quiet': 'Suppress configuration display (show only test results)'
 })
-def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config=False):
+def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config=False, quiet=False):
     """
     Run tests for a specific suite.
     
@@ -86,7 +87,7 @@ def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config
     def get_suite_env_callback(ctx, suite, **kwargs):
         return get_suite_default_env(suite)
     
-    resolved_env = resolve_config_env(config_env, (suite,), {'verbose': verbose}, 'test', get_suite_env_callback)
+    resolved_env = resolve_config_env(config_env, (suite,), {'verbose': verbose, 'quiet': quiet}, 'test', get_suite_env_callback, quiet)
     
     return run_pytest(suite, resolved_env, verbose, test_name, show_config)
 

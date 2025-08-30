@@ -17,7 +17,7 @@ import logging
 import firebase_admin
 from firebase_admin import auth, credentials
 
-from multi_eden.run.config import get_project_id, is_cloud_enabled, NotConfiguredForFirebaseException, get_secret
+from multi_eden.run.config.settings import get_setting
 from .exceptions import AuthenticationError, AuthorizationError
 from . import NON_CLOUD_ENV_NAME, CUSTOM_AUTH_BASE_ISSUER
 
@@ -44,7 +44,7 @@ def compute_hash(value: str, length: int = 16) -> str:
     Returns:
         str: Hex digest of the specified length
     """
-    jwt_key = get_secret('jwt-secret-key')
+    jwt_key = get_setting('jwt-secret-key')
     combined = f"{value}-{jwt_key}"
     return hashlib.sha256(combined.encode()).hexdigest()[:length]
 
@@ -141,7 +141,7 @@ def gen_token_using_dates(email: str, issuer: str = None, expiration_datetime: d
         'exp': expiration_datetime
     }
     
-    jwt_key = get_secret('jwt-secret-key')
+    jwt_key = get_setting('jwt-secret-key')
     return jwt.encode(payload, jwt_key, algorithm="HS256")
 
 
@@ -267,7 +267,22 @@ def ensure_firebase_user_exists(email, get_token=False):
     
     if not firebase_admin._apps:
         cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred, {'projectId': project_id})
+        # In Cloud Run, Firebase auto-detects project ID
+        # Locally, use explicit project ID if set
+        from multi_eden.run.config.settings import is_cloud_run, is_project_id_set, get_project_id
+        
+        if is_cloud_run():
+            # Let Firebase auto-detect project ID in Cloud Run
+            firebase_admin.initialize_app(cred)
+        elif is_project_id_set():
+            # Use explicit project ID for local development with Firebase
+            project_id = get_project_id()
+            firebase_admin.initialize_app(cred, {'projectId': project_id})
+        else:
+            raise RuntimeError(
+                "Firebase authentication requires either Cloud Run environment or PROJECT_ID setting. "
+                "For local development without Firebase, use custom JWT authentication."
+            )
     
     try:
         user = auth.get_user_by_email(email)

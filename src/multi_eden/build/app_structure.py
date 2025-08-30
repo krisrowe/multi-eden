@@ -20,10 +20,7 @@ class AppStructureError(Exception):
 
 def detect_main_module(base_path: str = ".") -> str:
     """
-    Auto-detect the main application module.
-    
-    Looks for directories containing __main__.py that follow the pattern
-    of being the primary application module.
+    Detect the main application module from app.yaml configuration.
     
     Args:
         base_path: Path to search in (defaults to current directory)
@@ -32,33 +29,35 @@ def detect_main_module(base_path: str = ".") -> str:
         Name of the main module directory
         
     Raises:
-        AppStructureError: If no main module found or multiple candidates
+        AppStructureError: If configuration is missing or invalid
     """
     base_path = Path(base_path)
     
-    # Find all directories with __main__.py
-    main_modules = []
-    for item in base_path.iterdir():
-        if (item.is_dir() and 
-            not item.name.startswith('.') and 
-            not item.name.startswith('_') and
-            item.name not in ['tests', 'docs', 'scripts', 'venv', 'env'] and
-            (item / '__main__.py').exists()):
-            main_modules.append(item.name)
-    
-    if len(main_modules) == 0:
+    try:
+        from multi_eden.build.config.app_config import get_api_module_info
+        api_info = get_api_module_info(base_path)
+        module_name = api_info['module_name']
+        
+        # Validate the module directory exists
+        module_path = base_path / module_name
+        if not module_path.exists():
+            raise AppStructureError(
+                f"Module directory '{module_name}' specified in config/app.yaml does not exist"
+            )
+        
+        if not module_path.is_dir():
+            raise AppStructureError(
+                f"'{module_name}' specified in config/app.yaml is not a directory"
+            )
+        
+        logger.info(f"Using configured main module: {module_name}")
+        return module_name
+        
+    except Exception as e:
         raise AppStructureError(
-            "No main module found. Expected a directory with __main__.py that contains "
-            "serve/CLI routing logic. See Multi-Eden SDK documentation for required structure."
-        )
-    elif len(main_modules) == 1:
-        logger.info(f"Auto-detected main module: {main_modules[0]}")
-        return main_modules[0]
-    else:
-        raise AppStructureError(
-            f"Multiple main modules found: {main_modules}. "
-            "Multi-Eden apps should have exactly one main module directory. "
-            "Consider consolidating or excluding non-main modules from the build."
+            f"Failed to load main module from config/app.yaml: {e}. "
+            "Ensure config/app.yaml exists with proper 'api.module' configuration. "
+            "Run 'invoke init-app' to create proper configuration."
         )
 
 

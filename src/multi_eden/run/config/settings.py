@@ -1,215 +1,358 @@
 """
-Environment and secrets management.
+Unified Runtime Settings Management
 
-Loads configuration from environment variables that are set by task runners.
-Task runners load configuration files and inject them as environment variables.
+Provides runtime access to all configuration settings via get_setting(name).
+Uses a manifest-driven approach with proper error handling, secret masking, and caching.
+Replaces both the old settings.py and secrets.py modules.
 """
-import json
-import logging
 import os
 import sys
-from pathlib import Path
-from typing import Dict, Any, Optional
-from dataclasses import dataclass
+import logging
 import yaml
-from .secrets import Authorization, get_authorization_config, get_secret
+from pathlib import Path
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass
 
-# Set up logger
 logger = logging.getLogger(__name__)
 
 
+class SettingNotDefinedException(Exception):
+    """Raised when a setting name is not defined in the manifest."""
+    
+    def __init__(self, setting_name: str, available_settings: List[str]):
+        self.setting_name = setting_name
+        self.available_settings = available_settings
+        super().__init__(
+            f"Setting '{setting_name}' is not defined in the settings manifest. "
+            f"Available settings: {', '.join(sorted(available_settings))}"
+        )
+
+
+class SettingValueNotFoundException(Exception):
+    """Raised when a setting is defined but its value cannot be found."""
+    
+    def __init__(self, setting_name: str, source: str, details: str = ""):
+        self.setting_name = setting_name
+        self.source = source
+        self.details = details
+        message = f"Setting '{setting_name}' is defined but value not found from source '{source}'"
+        if details:
+            message += f": {details}"
+        super().__init__(message)
+
+
 @dataclass
-class SimpleAppConfig:
-    """Application configuration loaded from app.yaml."""
-    id: str
-
-class AppIdNotAvailableException(Exception):
-    """Raised when the application ID cannot be determined."""
-    pass
-
-
-class SecretsNotAvailableException(Exception):
-    """Exception raised when secrets cannot be loaded or accessed."""
-    pass
+class SettingDefinition:
+    """Definition of a runtime setting from the manifest."""
+    name: str
+    source: str
+    secret: bool
+    description: str
+    required: bool = True
 
 
-
-class ProjectIdNotAvailableException(Exception):
-    """Raised when project ID cannot be determined from any source."""
-    pass
-
-
-class CloudConfigurationException(Exception):
-    """Raised when host.json configuration is invalid or missing required fields."""
-    pass
+# Global cache for settings manifest and values
+_settings_manifest: Optional[List[SettingDefinition]] = None
+_settings_cache: Dict[str, Any] = {}
+_app_config_cache: Optional[Dict[str, Any]] = None
 
 
-class NotConfiguredForFirebaseException(Exception):
-    """Raised when Firebase operations are attempted but cloud services are not enabled."""
-    pass
-
-
-class SecurityException(Exception):
-    """Raised when security validation fails."""
-    pass
-
-
-class ConfigurationException(Exception):
-    """Raised when configuration cannot be loaded."""
-    pass
-
-
-try:
-    from google.cloud import storage
-    from google.auth import default
-except ImportError:
-    # Fallback for environments without Google Cloud SDK
-    storage = None
-    default = None
-
-
-# Global app config instance - initialized as None, loaded on demand (private)
-_app_config: Optional[SimpleAppConfig] = None
-
-# Global authorization instance - initialized as None, loaded on demand (private)
-_authorization: Optional[Authorization] = None
-
-# Global host configuration instance - initialized as None, loaded on demand (private)
-_host_config: Optional[Dict[str, Any]] = None
-
-# Configuration environment - set by CLI/API entry points or lazy command line parsing
-_config_env: Optional[str] = None
-
-def get_app_config() -> SimpleAppConfig:
-    """
-    Load the application configuration from app.yaml in the project root.
-    Falls back to a default app ID based on the package name if config is not available.
-    """
-    global _app_config
-    if _app_config:
-        return _app_config
-
+def _load_settings_manifest() -> List[SettingDefinition]:
+    """Load and cache the settings manifest from YAML."""
+    global _settings_manifest
+    
+    if _settings_manifest is not None:
+        return _settings_manifest
+    
+    # Find the manifest file
+    manifest_path = Path(__file__).parent / "settings_manifest.yaml"
+    
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Settings manifest not found at {manifest_path}")
+    
     try:
-        repo_root = Path.cwd()
-        app_config_path = repo_root / 'config' / 'app.yaml'
+        with open(manifest_path, 'r') as f:
+            manifest_data = yaml.safe_load(f)
         
-        if not app_config_path.exists():
-            # Generate default app ID from package name
-            default_app_id = _generate_default_app_id()
-            logger.debug(f"app.yaml not found at {app_config_path.absolute()}, using default app ID: {default_app_id}")
-            _app_config = SimpleAppConfig(id=default_app_id)
-            return _app_config
+        if not isinstance(manifest_data, dict) or 'settings' not in manifest_data:
+            raise ValueError("Invalid manifest format: missing 'settings' key")
+        
+        settings_list = []
+        for setting_data in manifest_data['settings']:
+            setting = SettingDefinition(
+                name=setting_data['name'],
+                source=setting_data['source'],
+                secret=setting_data.get('secret', False),
+                description=setting_data.get('description', ''),
+                required=setting_data.get('required', True)
+            )
+            settings_list.append(setting)
+        
+        _settings_manifest = settings_list
+        logger.debug(f"Loaded {len(settings_list)} settings from manifest")
+        return _settings_manifest
+        
+    except Exception as e:
+        raise RuntimeError(f"Failed to load settings manifest: {e}")
 
+
+def _load_app_config() -> Dict[str, Any]:
+    """Load and cache the app configuration from config/app.yaml."""
+    global _app_config_cache
+    
+    if _app_config_cache is not None:
+        return _app_config_cache
+    
+    # Look for app.yaml in the current working directory
+    app_config_path = Path.cwd() / 'config' / 'app.yaml'
+    
+    if not app_config_path.exists():
+        # Generate default app config based on package name
+        package_name = __name__.split('.')[0]  # 'multi_eden'
+        default_app_id = package_name.replace('_', '-') + '-default'
+        _app_config_cache = {'id': default_app_id}
+        logger.debug(f"app.yaml not found, using default app ID: {default_app_id}")
+        return _app_config_cache
+    
+    try:
         with open(app_config_path, 'r') as f:
             config_data = yaml.safe_load(f)
-            if not isinstance(config_data, dict) or 'id' not in config_data:
-                # Generate default app ID from package name
-                default_app_id = _generate_default_app_id()
-                logger.debug(f"'id' not found in app.yaml at {app_config_path.absolute()}, using default app ID: {default_app_id}")
-                _app_config = SimpleAppConfig(id=default_app_id)
-                return _app_config
-            
-            app_id = config_data['id']
-            if not app_id or not app_id.strip():
-                # Generate default app ID from package name
-                default_app_id = _generate_default_app_id()
-                logger.debug(f"app.yaml 'id' is blank/empty/null at {app_config_path.absolute()}, using default app ID: {default_app_id}")
-                _app_config = SimpleAppConfig(id=default_app_id)
-                return _app_config
-            
-            _app_config = SimpleAppConfig(id=app_id)
-            return _app_config
-            
+        
+        if not isinstance(config_data, dict):
+            raise ValueError("app.yaml must contain a dictionary")
+        
+        _app_config_cache = config_data
+        logger.debug(f"Loaded app config from {app_config_path}")
+        return _app_config_cache
+        
     except Exception as e:
-        # Generate default app ID from package name
-        default_app_id = _generate_default_app_id()
-        logger.debug(f"Failed to load app.yaml: {e}, using default app ID: {default_app_id}")
-        _app_config = SimpleAppConfig(id=default_app_id)
-        return _app_config
+        # Fall back to default on any error
+        package_name = __name__.split('.')[0]
+        default_app_id = package_name.replace('_', '-') + '-default'
+        _app_config_cache = {'id': default_app_id}
+        logger.debug(f"Failed to load app.yaml ({e}), using default app ID: {default_app_id}")
+        return _app_config_cache
 
-def _generate_default_app_id() -> str:
-    """
-    Generate a default app ID based on the package name.
-    Converts underscores to hyphens and adds '-default' suffix.
-    """
-    # Get the package name from the current module path
-    package_name = __name__.split('.')[0]  # 'multi_eden' from 'multi_eden.run.config.settings'
+
+def _get_nested_value(data: Dict[str, Any], path: str) -> Any:
+    """Get a nested value from a dictionary using dot notation."""
+    keys = path.split('.')
+    current = data
     
-    # Convert underscores to hyphens and add -default suffix
-    default_app_id = package_name.replace('_', '-') + '-default'
+    for key in keys:
+        if not isinstance(current, dict) or key not in current:
+            raise KeyError(f"Path '{path}' not found")
+        current = current[key]
     
-    return default_app_id
+    return current
+
+
+def _load_setting_value(setting: SettingDefinition) -> Any:
+    """Load a setting value from its source."""
+    source_type, source_param = setting.source.split(':', 1)
+    
+    if source_type == 'env-var':
+        value = os.environ.get(source_param)
+        if value is None:
+            if setting.required:
+                raise SettingValueNotFoundException(
+                    setting.name, 
+                    setting.source, 
+                    f"Environment variable '{source_param}' not set"
+                )
+            return None
+        return value.strip() if value else value
+    
+    elif source_type == 'app-config':
+        app_config = _load_app_config()
+        try:
+            value = _get_nested_value(app_config, source_param)
+            return value
+        except KeyError:
+            if setting.required:
+                raise SettingValueNotFoundException(
+                    setting.name,
+                    setting.source,
+                    f"Path '{source_param}' not found in app.yaml"
+                )
+            return None
+    
+    elif source_type == 'computed':
+        # For future extension - computed values
+        raise NotImplementedError(f"Computed source type not yet implemented: {setting.source}")
+    
+    else:
+        raise ValueError(f"Unknown source type '{source_type}' for setting '{setting.name}'")
+
+
+def get_setting(name: str) -> str:
+    """
+    Get a setting value by name.
+    
+    Args:
+        name: The setting name (e.g., 'jwt-secret-key', 'app-id')
+        
+    Returns:
+        The setting value as a string
+        
+    Raises:
+        SettingNotDefinedException: If the setting name is not in the manifest
+        SettingValueNotFoundException: If the setting is defined but value not found
+    """
+    # Check cache first
+    if name in _settings_cache:
+        return _settings_cache[name]
+    
+    # Load manifest
+    manifest = _load_settings_manifest()
+    
+    # Find the setting definition
+    setting_def = None
+    for setting in manifest:
+        if setting.name == name:
+            setting_def = setting
+            break
+    
+    if setting_def is None:
+        available_names = [s.name for s in manifest]
+        raise SettingNotDefinedException(name, available_names)
+    
+    # Load the value
+    value = _load_setting_value(setting_def)
+    
+    # Cache the value
+    _settings_cache[name] = value
+    
+    return value
+
+
+def list_settings() -> List[Dict[str, Any]]:
+    """
+    List all available settings with their metadata.
+    
+    Returns:
+        List of setting information dictionaries
+    """
+    manifest = _load_settings_manifest()
+    settings_info = []
+    
+    for setting in manifest:
+        try:
+            value = get_setting(setting.name)
+            # Mask secrets for display
+            display_value = "***MASKED***" if setting.secret else value
+        except SettingValueNotFoundException:
+            display_value = "<NOT SET>"
+        except Exception as e:
+            display_value = f"<ERROR: {e}>"
+        
+        settings_info.append({
+            'name': setting.name,
+            'value': display_value,
+            'source': setting.source,
+            'secret': setting.secret,
+            'description': setting.description,
+            'required': setting.required
+        })
+    
+    return settings_info
+
+
+def print_settings_table(file=None):
+    """
+    Print a formatted table of settings to stderr (or specified file).
+    
+    Args:
+        file: File object to write to (defaults to sys.stderr)
+    """
+    if file is None:
+        file = sys.stderr
+    
+    settings_info = list_settings()
+    
+    print("\n" + "=" * 85, file=file)
+    print("🔧 RUNTIME SETTINGS", file=file)
+    print("=" * 85, file=file)
+    print(f"{'SETTING':<25} {'VALUE':<34} {'SOURCE':<19}", file=file)
+    print("-" * 85, file=file)
+    
+    for setting in settings_info:
+        # Truncate long values for display
+        display_value = str(setting['value']) if setting['value'] is not None else "<NOT SET>"
+        if len(display_value) > 34:
+            display_value = display_value[:31] + "..."
+        
+        # Truncate long source for display
+        display_source = setting['source']
+        if len(display_source) > 19:
+            display_source = display_source[:16] + "..."
+        
+        print(f"{setting['name']:<25} {display_value:<34} {display_source:<19}", file=file)
+    
+    print("=" * 85, file=file)
+
+
+def clear_cache():
+    """Clear all cached settings and manifest data. Useful for testing."""
+    global _settings_manifest, _settings_cache, _app_config_cache
+    _settings_manifest = None
+    _settings_cache.clear()
+    _app_config_cache = None
+
+
+# Legacy compatibility functions - these will be deprecated
+def get_secret(secret_name: str) -> str:
+    """
+    Legacy compatibility function for get_secret().
+    
+    DEPRECATED: Use get_setting() instead.
+    """
+    import warnings
+    warnings.warn(
+        "get_secret() is deprecated. Use get_setting() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return get_setting(secret_name)
 
 
 def get_app_id() -> str:
-    """Returns the application ID from the app configuration."""
-    return get_app_config().id
+    """Get the application ID."""
+    return get_setting('app-id')
 
 
-def _parse_command_line() -> None:
+def is_project_id_set() -> bool:
+    """Check if a project ID is configured.
+    
+    Returns:
+        True if project ID is set, False otherwise
     """
-    Parse command line arguments for --config-env if not already set.
-    Only runs if _config_env is not already set.
-    
-    NOTE: This function is now deprecated since configuration is loaded by task runners
-    and passed via environment variables. Direct execution requires environment variables
-    to be set beforehand.
-    """
-    global _config_env
-    
-    # If config environment is already set, we're done
-    if _config_env:
-        return
-    
-    # No longer parsing --config-env from command line
-    # Configuration must be provided via environment variables by task runners
-    logger.debug("No --config-env parsing - configuration must be provided via environment variables")
+    try:
+        project_id = get_setting('project-id')
+        return bool(project_id and project_id.strip())
+    except SettingValueNotFoundException:
+        return False
 
 
-def ensure_env_config_loaded() -> None:
+def is_cloud_run() -> bool:
+    """Check if running in Google Cloud Run.
+    
+    Returns:
+        True if running in Cloud Run, False otherwise
     """
-    Ensure that environment configuration is loaded and verify it's valid.
+    return os.environ.get('K_SERVICE') is not None
+
+
+def get_project_id() -> str:
+    """Get the Google Cloud project ID.
     
-    This method:
-    1. Attempts lazy command line parsing if not done yet
-    2. Forces loading of secrets and provider settings
-    3. Verifies key configuration values are present and valid
-    4. Uses debug logging throughout the process
-    
+    Returns:
+        Project ID string
+        
     Raises:
-        ConfigurationException: If configuration cannot be loaded or verified
+        SettingValueNotFoundException: If project ID is not configured
     """
-    logger.debug("Ensuring environment configuration is loaded...")
-    
-    # Force load secrets (this will raise if config_env is not set
-    # and cannot be set via command line argument)
-    try:
-        authorization = get_authorization()
-        logger.debug("Authorization loaded successfully")
-    except Exception as e:
-        logger.error(f"Failed to load authorization: {e}")
-        raise ConfigurationException("Configuration environment not set. Environment variables must be provided by task runners.")
-    
-    # Verify key configuration values
-    try:
-        jwt_key = get_secret('jwt-secret-key')
-        logger.debug("JWT key validation successful")
-    except RuntimeError as e:
-        logger.error(f"JWT key validation failed: {e}")
-        raise ConfigurationException(f"Invalid configuration: {e}")
-    
-    logger.debug(f"JWT key verified: {jwt_key[:8]}...")
-    
-    # Check if custom auth is enabled (this will load provider settings)
-    try:
-        from .providers import is_custom_auth_enabled
-        custom_auth_enabled = is_custom_auth_enabled()
-        logger.debug(f"Custom auth enabled: {custom_auth_enabled}")
-    except Exception as e:
-        logger.error(f"Failed to check custom auth status: {e}")
-        raise ConfigurationException(f"Failed to load provider configuration: {e}")
-    
-    logger.debug("Environment configuration verified successfully")
+    return get_setting('project-id')
 
 
 def is_secrets_available() -> bool:
@@ -219,275 +362,94 @@ def is_secrets_available() -> bool:
         True if secrets can be loaded successfully, False otherwise.
     """
     try:
-        get_authorization()
+        # Try to load a required secret to test availability
+        get_setting('jwt-secret-key')
+        return True
+    except SettingValueNotFoundException:
+        return False
+
+
+def get_authorization():
+    """Get authorization configuration (backward compatibility wrapper).
+    
+    Returns:
+        Authorization instance loaded from settings.
+    """
+    from ..auth.config import get_authorization_config
+    return get_authorization_config()
+
+
+def is_setting_available(name: str) -> bool:
+    """Check if a setting is available without raising an exception."""
+    try:
+        get_setting(name)
         return True
     except Exception:
         return False
 
 
-def set_authorization(authorization: Optional[Authorization]) -> None:
-    """Set the global authorization configuration.
-    
-    Args:
-        authorization: Authorization instance to set as global, or None to clear.
-    """
-    global _authorization
-    _authorization = authorization
+def _clear_settings_cache():
+    """Clear the settings cache for testing purposes."""
+    global _settings_cache
+    _settings_cache = {}
 
 
-def set_config_env(env_name: str) -> None:
-    """Set the configuration environment name."""
-    global _config_env
-    _config_env = env_name
-
-
-def get_authorization() -> Authorization:
-    """Get authorization configuration from environment variables.
+def print_settings():
+    """Print formatted settings table to stderr showing name, value, and source."""
+    import sys
     
-    Returns:
-        Authorization instance loaded from environment variables.
-        
-    Raises:
-        SecretsNotAvailableException: If required environment variables are missing
-    """
-    global _authorization
+    # ANSI color codes
+    GRAY = '\033[90m'    # Dark gray for unavailable settings
+    YELLOW = '\033[93m'  # Bright yellow for secrets (highly visible)
+    RESET = '\033[0m'
     
-    # Return cached instance if already loaded
-    if _authorization is not None:
-        return _authorization
+    print("="*68, file=sys.stderr)
+    print("📋 Runtime Configuration Settings", file=sys.stderr)
+    print("="*68, file=sys.stderr)
+    print(f"{'Setting Name':<25} {'Value':<28} {'Source':<15}", file=sys.stderr)
+    print("-"*68, file=sys.stderr)
     
-    try:
-        # Use the new secrets system
-        authorization = get_authorization_config()
-        
-        # Cache the loaded authorization for future calls
-        _authorization = authorization
-        logger.debug("Successfully loaded authorization from environment variables")
-        return authorization
+    # Get all settings from manifest
+    manifest_settings = _load_settings_manifest()
+    
+    for setting_def in manifest_settings:
+        name = setting_def.name
+        # Determine source first (always available from manifest)
+        if setting_def.source.startswith('env-var:'):
+            source = "Environment"
+        elif setting_def.source == 'app-yaml':
+            source = "App Config"
+        else:
+            source = "Other"
             
-    except Exception as e:
-        error_msg = f"Unexpected error loading authorization: {e}"
-        logger.error(f"Authorization loading failed: {error_msg}")
-        raise SecretsNotAvailableException(error_msg)
-
-
-
-
-
-def get_project_id() -> str:
-    """Get the GCP project ID from configuration.
-    
-    IMPORTANT: Callers must check is_cloud_enabled() before calling this function.
-    This function will raise an exception if cloud services are not enabled.
-    
-    PRINCIPLES ENFORCED:
-    - Never returns None or empty string
-    - Never suppresses exceptions inappropriately
-    - Enforces explicit cloud-enabled checking
-    - Uses CLOUD_PROJECT_ID environment variable
-    
-    Returns:
-        GCP project ID string (never None/empty)
-        
-    Raises:
-        ProjectIdNotAvailableException: If project ID cannot be determined
-        CloudConfigurationException: If cloud services are not enabled
-    """
-    # First check if cloud is enabled
-    if not is_cloud_enabled():
-        error_msg = "Cloud services are not enabled. Check is_cloud_enabled() before calling get_project_id()."
-        logger.error(f"Project ID access failed: {error_msg}")
-        raise CloudConfigurationException(error_msg)
-    
-    # Try to get project ID from CLOUD_PROJECT_ID environment variable
-    project_id = os.environ.get('CLOUD_PROJECT_ID')
-    if project_id and project_id.strip():
-        logger.debug(f"Got project ID from CLOUD_PROJECT_ID environment variable: {project_id}")
-        return project_id.strip()
-    
-    # Fall back to cloud detection
-    try:
-        project_id = _get_project_id_from_cloud()
-        logger.debug(f"Got project ID from cloud detection: {project_id}")
-        return project_id
-    except Exception as e:
-        error_msg = f"Could not determine project ID from any source: {e}"
-        logger.error(f"Project ID detection failed: {error_msg}")
-        raise ProjectIdNotAvailableException(error_msg)
-
-
-def _get_project_id_from_cloud() -> str:
-    """Get project ID from Google Cloud environment.
-    
-    PRINCIPLES ENFORCED:
-    - Never returns None or empty string  
-    - Never falls back to defaults inappropriately
-    - Always throws strongly-typed exceptions on failure
-    - Uses proper error logging at appropriate levels
-    - Never suppresses exceptions inappropriately
-    
-    Detection order:
-    1. Google Cloud SDK default credentials
-    2. GCE metadata service (if running on Google Cloud)
-    
-    Returns:
-        Project ID string (never None/empty)
-        
-    Raises:
-        ProjectIdNotAvailableException: If project ID cannot be determined
-    """
-    # Try Google Cloud SDK default credentials
-    if default is not None:
-        try:
-            credentials, project_id = default()
-            if project_id and project_id.strip():
-                logger.debug(f"Got project ID from GCP default credentials: {project_id}")
-                return project_id.strip()
+        # Check if setting is available first
+        if is_setting_available(name):
+            value = get_setting(name)
+            # Handle secrets with partial display
+            if setting_def.secret:
+                if value:
+                    # Show first 6 characters + ellipsis in bright yellow
+                    display_value = f"{YELLOW}{str(value)[:6]}...{RESET}"
+                else:
+                    display_value = "(not set)"
             else:
-                logger.debug("GCP default credentials available but no project ID returned")
-        except Exception as e:
-            logger.debug(f"Failed to get project ID from GCP default credentials: {e}")
+                display_value = str(value) if value is not None else "(not set)"
+        else:
+            # Use softer gray color for unavailable settings
+            display_value = f"{GRAY}(not available){RESET}"
+            
+        # Handle formatting with color codes - they don't count toward visible width
+        if GRAY in display_value or YELLOW in display_value:
+            # For colored text, calculate visible length and add manual padding
+            visible_text = display_value.replace(GRAY, '').replace(YELLOW, '').replace(RESET, '')
+            padding_needed = 28 - len(visible_text)
+            padded_value = display_value + ' ' * padding_needed
+            print(f"{name:<25} {padded_value} {source:<15}", file=sys.stderr)
+        else:
+            # Normal formatting for non-colored text
+            print(f"{name:<25} {display_value:<28} {source:<15}", file=sys.stderr)
     
-    # Try GCE metadata service
-    try:
-        import requests
-        metadata_url = "http://metadata.google.internal/computeMetadata/v1/project/project-id"
-        headers = {"Metadata-Flavor": "Google"}
-        response = requests.get(metadata_url, headers=headers, timeout=5)
-        if response.status_code == 200:
-            project_id = response.text.strip()
-            if project_id:
-                logger.debug(f"Got project ID from GCE metadata service: {project_id}")
-                return project_id
-        logger.debug(f"GCE metadata service returned status {response.status_code}")
-    except Exception as e:
-        logger.debug(f"Failed to get project ID from GCE metadata service: {e}")
-    
-    # No project ID found
-    error_msg = (
-        "Could not determine project ID from any cloud source. "
-        "Tried: GCP default credentials, metadata service. "
-        "Ensure you're running in a Google Cloud environment or have proper credentials configured."
-    )
-    logger.error(f"Project ID detection failed: {error_msg}")
-    raise ProjectIdNotAvailableException(error_msg)
+    print("="*68, file=sys.stderr)
+    print("", file=sys.stderr)
 
 
-def is_cloud_enabled() -> bool:
-    """
-    Determine if cloud services (project ID, Firestore, etc.) are enabled.
-    
-    Logic:
-    - Check if CLOUD_PROJECT_ID environment variable is set
-    - If CLOUD_PROJECT_ID is set and not empty → cloud enabled
-    - If no CLOUD_PROJECT_ID → cloud disabled
-    
-    PRINCIPLES ENFORCED:
-    - Never suppresses exceptions inappropriately
-    - Uses proper error logging
-    - Simple logic without complex mode detection
-    
-    Returns:
-        True if cloud services are available, False for unit testing/local-only mode
-    """
-    project_id = os.environ.get('CLOUD_PROJECT_ID')
-    if project_id and project_id.strip():
-        logger.debug(f"Cloud enabled: CLOUD_PROJECT_ID environment variable set: {project_id}")
-        return True
-    
-    logger.debug("Cloud disabled: CLOUD_PROJECT_ID environment variable not set")
-    return False
-
-
-def get_providers() -> Dict[str, Any]:
-    """Get provider configuration from environment variables.
-    
-    This function gets provider configuration from environment variables using the provider manager.
-    
-    Returns:
-        Provider configuration dictionary
-        
-    Raises:
-        ProviderConfigurationError: If provider configuration cannot be determined
-    """
-    try:
-        from .providers import get_provider_config
-        provider_config = get_provider_config()
-        
-        # Convert to dictionary format for backward compatibility
-        providers_config = {
-            'auth_provider': provider_config.auth_provider,
-            'data_provider': provider_config.data_provider,
-            'ai_provider': provider_config.ai_provider
-        }
-        
-        logger.debug("Loaded provider configuration from environment variables")
-        return providers_config
-        
-    except Exception as e:
-        error_msg = f"Failed to get provider configuration: {e}"
-        logger.error(f"Provider loading failed: {error_msg}")
-        raise
-
-
-
-def is_cloud_run() -> bool:
-    """Check if the current environment is Google Cloud Run.
-    
-    Returns:
-        True if running in Cloud Run, False otherwise
-    """
-    return os.environ.get('K_SERVICE') is not None
-
-
-def _get_config_env() -> str:
-    """
-    Get the configuration environment name with validation.
-    
-    PRINCIPLES ENFORCED:
-    - Never returns None or empty string
-    - Always throws strongly-typed exceptions on failure
-    - Uses proper error logging at appropriate levels
-    - Never suppresses exceptions inappropriately
-    - Validates environment name for security
-    
-    Returns:
-        Environment name string (never None/empty)
-        
-    Raises:
-        ValueError: If no config environment is specified
-        SecurityException: If environment name contains invalid characters or path traversal attempts
-    """
-    if not _config_env:
-        error_msg = "No config environment specified. Environment variables must be provided by task runners."
-        logger.error(f"Configuration environment detection failed: {error_msg}")
-        raise ValueError(error_msg)
-    
-    env_name = _config_env.strip()
-    
-    # Basic validation
-    if not env_name:
-        error_msg = "Environment name cannot be empty or whitespace-only"
-        logger.error(f"Configuration environment validation failed: {error_msg}")
-        raise SecurityException(error_msg)
-    
-    # Check for path traversal attempts (this is NOT redundant with regex)
-    if '..' in env_name:
-        error_msg = f"Environment name contains path traversal attempt: {env_name}"
-        logger.error(f"Configuration environment validation failed: {error_msg}")
-        raise SecurityException(error_msg)
-    
-    # Check for valid folder name characters
-    import re
-    if not re.match(r'^[a-zA-Z0-9_-]+$', env_name):
-        error_msg = f"Environment name contains invalid characters: {env_name}"
-        logger.error(f"Configuration environment validation failed: {error_msg}")
-        raise SecurityException(error_msg)
-    
-    # Check reasonable length limit (only upper bound needed)
-    if len(env_name) > 50:
-        error_msg = f"Environment name too long (max 50 chars): {len(env_name)}"
-        logger.error(f"Configuration environment validation failed: {error_msg}")
-        raise SecurityException(error_msg)
-    
-    return env_name

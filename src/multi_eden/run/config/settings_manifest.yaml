@@ -1,0 +1,64 @@
+# Multi-Eden Runtime Settings Manifest
+# Defines all settings accessible by the run package and applications
+# Only settings actually used by runtime code should be listed here
+# 
+# Source types:
+#   env-var:{VAR_NAME} - Read from environment variable
+#   app-config:{yaml.path} - Read from config/app.yaml using dot notation
+#   computed:{function_name} - Computed value from function
+
+settings:
+  # Authentication & Security Settings
+  - name: "jwt-secret-key"
+    source: "env-var:JWT_SECRET_KEY"
+    secret: true
+    description: "JWT signing secret for custom authentication tokens"
+    
+  - name: "allowed-user-emails"
+    source: "env-var:ALLOWED_USER_EMAILS"
+    secret: true
+    description: "Comma-separated list of allowed user email addresses"
+    
+  - name: "gemini-api-key"
+    source: "env-var:GEMINI_API_KEY"
+    secret: true
+    description: "Google Gemini API key for AI services"
+    
+  # Configuration Settings
+  - name: "custom-auth-enabled"
+    source: "env-var:CUSTOM_AUTH_ENABLED"
+    secret: false
+    description: "Enable custom JWT authentication instead of Firebase"
+    
+  - name: "custom-auth-all-users"
+    source: "env-var:CUSTOM_AUTH_ALL_USERS"
+    secret: false
+    description: "Allow all authenticated users (true) or check allowed list (false)"
+    
+  - name: "stub-ai"
+    source: "env-var:STUB_AI"
+    secret: false
+    description: "Use stubbed AI provider for testing"
+    
+  - name: "stub-db"
+    source: "env-var:STUB_DB"
+    secret: false
+    description: "Use stubbed database provider for testing"
+    
+  # API Configuration
+  - name: "api-testing-url"
+    source: "env-var:API_TESTING_URL"
+    secret: false
+    description: "Base URL for API testing requests"
+    
+  # Project Configuration
+  - name: "project-id"
+    source: "env-var:PROJECT_ID"
+    secret: false
+    description: "Google Cloud project ID for cloud services"
+    
+  # Application Configuration (from app.yaml)
+  - name: "app-id"
+    source: "app-config:id"
+    secret: false
+    description: "Application identifier from config/app.yaml"
