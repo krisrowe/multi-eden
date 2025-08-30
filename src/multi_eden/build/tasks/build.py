@@ -207,8 +207,8 @@ def build(ctx, force=False, tag=None):
             load_env("dev")  # Default to dev environment for builds
             print(f"🔧 Loaded build configuration from dev environment")
         except Exception as e:
-            print(f"⚠️  Could not load build configuration: {e}")
-            print(f"⚠️  Continuing with default environment variables")
+            print(f"❌ Failed to load build configuration: {e}")
+            raise RuntimeError(f"Build configuration failed: {e}")
         
         # Get build configuration
         project_id, image_name = get_build_config()

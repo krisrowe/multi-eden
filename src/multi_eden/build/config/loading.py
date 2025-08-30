@@ -232,23 +232,30 @@ def _is_secret_required(secret, settings: Dict[str, Any]) -> bool:
 def _get_secret_from_manager(project_id: str, secret_name: str) -> Optional[str]:
     """Get secret value from Google Secret Manager."""
     try:
+        print(f"🔍 Attempting to import google.cloud.secretmanager...")
         from google.cloud import secretmanager
+        print(f"✅ Import successful")
         
+        print(f"🔍 Creating SecretManagerServiceClient...")
         client = secretmanager.SecretManagerServiceClient()
-        secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        print(f"✅ Client created successfully")
         
-        pass  # Fetching secret from Secret Manager
+        secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        print(f"🔍 Accessing secret path: {secret_path}")
+        
         response = client.access_secret_version(request={"name": secret_path})
+        print(f"✅ Secret access successful")
         
         secret_value = response.payload.data.decode("UTF-8")
-        pass  # Successfully retrieved secret from Secret Manager
+        print(f"✅ Secret decoded successfully (length: {len(secret_value)})")
         return secret_value
         
-    except ImportError:
-        pass  # Google Cloud Secret Manager library not available
+    except ImportError as e:
+        print(f"❌ ImportError - Google Cloud Secret Manager library not available: {e}")
         return None
     except Exception as e:
         print(f"❌ Failed to retrieve secret '{secret_name}' from Secret Manager: {e}")
+        print(f"❌ Exception type: {type(e).__name__}")
         raise RuntimeError(f"Secret Manager access failed: {e}")
 
 

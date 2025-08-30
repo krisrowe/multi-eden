@@ -147,21 +147,21 @@ class Settings:
         if env_var := os.getenv('API_TESTING_URL'):
             return env_var
         
-        # 2. Cloud environment (project_id present) - get actual Cloud Run URL
+        # 2. Local execution (local flag enabled) - use localhost even if project_id present
+        if self.local:
+            if self.port:
+                return f"http://localhost:{self.port}"
+            else:
+                return "http://localhost"
+        
+        # 3. Cloud environment (project_id present) - get actual Cloud Run URL
         if self.project_id:
             from multi_eden.internal.gcp import get_cloud_run_service_url
             service_name = f"{self.app_id}-api"
             return get_cloud_run_service_url(self.project_id, service_name)
         
-        # 3. Local execution (no project_id) - only if local setting is enabled
-        if not self.local:
-            raise RuntimeError("Cannot derive API URL: no project_id for cloud and local execution not enabled")
-        
-        # Local execution - use port if configured, otherwise no port specified
-        if self.port:
-            return f"http://localhost:{self.port}"
-        else:
-            return "http://localhost"
+        # 4. No configuration available
+        raise RuntimeError("Cannot derive API URL: no project_id for cloud and local execution not enabled")
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for environment setup."""

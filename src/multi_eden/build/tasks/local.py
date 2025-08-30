@@ -285,8 +285,8 @@ def api_start(ctx, port=None, env="local", background=True):
             load_env(env)
             print(f"🔧 Loaded configuration from {env} environment")
         except Exception as e:
-            print(f"⚠️  Could not load configuration for environment '{env}': {e}")
-            print(f"⚠️  Continuing with default environment variables")
+            print(f"❌ Failed to load configuration for environment '{env}': {e}")
+            raise RuntimeError(f"Configuration loading failed: {e}")
         
         # Set environment variables
         env_vars = os.environ.copy()
