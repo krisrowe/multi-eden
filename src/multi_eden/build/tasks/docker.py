@@ -148,9 +148,14 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
                 else:
                     cmd_parts.append(f"-e {env_var}={os.environ[env_var]}")
         
-        # Add secrets environment variables
-        secret_env_vars = ["CUSTOM_AUTH_SALT", "ALLOWED_USER_EMAILS", "GEMINI_API_KEY"]
-        for env_var in secret_env_vars:
+        # Add ALL runtime settings environment variables (from settings_manifest.yaml)
+        runtime_env_vars = [
+            # Secrets (from settings_manifest.yaml)
+            "JWT_SECRET_KEY", "ALLOWED_USER_EMAILS", "GEMINI_API_KEY",
+            # Legacy (for backward compatibility)
+            "CUSTOM_AUTH_SALT"
+        ]
+        for env_var in runtime_env_vars:
             if env_var in os.environ:
                 cmd_parts.append(f"-e {env_var}={os.environ[env_var]}")
         

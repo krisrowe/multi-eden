@@ -30,11 +30,7 @@ settings:
     secret: false
     description: "Enable custom JWT authentication instead of Firebase"
     
-  - name: "custom-auth-all-users"
-    source: "env-var:CUSTOM_AUTH_ALL_USERS"
-    secret: false
-    description: "Allow all authenticated users (true) or check allowed list (false)"
-    
+
   - name: "stub-ai"
     source: "env-var:STUB_AI"
     secret: false
