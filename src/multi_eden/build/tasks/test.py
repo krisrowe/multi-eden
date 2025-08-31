@@ -361,59 +361,7 @@ def _show_secrets_configuration(config_env):
         print("=" * 74 + "\n")
 
 
-def _show_integrations_summary():
-    """Display integrations summary showing which providers are mocked."""
-    try:
-        from ...run.config.providers import (
-            is_custom_auth_enabled, 
-            is_db_in_memory, 
-            is_ai_mocked
-        )
-        from ...run.config.testing import get_mode as get_test_mode
-        
-        test_mode_config = get_test_mode()
-        
-        print("\n" + "="*60)
-        print("🔧 INTEGRATIONS SUMMARY")
-        print("="*60)
-        
-        # Auth Provider
-        custom_auth_enabled = is_custom_auth_enabled()
-        _print_integration_row("Custom Auth Enabled", custom_auth_enabled)
-        
-        # Database Provider
-        use_in_memory_db = is_db_in_memory()
-        _print_integration_row("Use In-Memory DB", use_in_memory_db)
-        
-        # AI Model Provider
-        ai_mocked = is_ai_mocked()
-        _print_integration_row("AI Model Mocked", ai_mocked)
-        
-        # API Client Provider (show last)
-        api_in_memory = test_mode_config.in_memory_api
-        _print_integration_row("API In-Process", api_in_memory)
-        
-        print("="*60)
-        print()
-        
-    except Exception as e:
-        # If we can't show integrations summary, continue without it
-        print(f"⚠️  Could not display integrations summary: {e}")
-        print()
 
-
-def _print_integration_row(caption, value):
-    """Print an integration row with aligned caption and colored boolean value."""
-    # Pad caption to align values
-    padded_caption = f"{caption:<20}"
-    
-    # Color the boolean value (dim for True, bright for False)
-    if value:
-        colored_value = f"\033[2m{value}\033[0m"  # Dim color for True
-    else:
-        colored_value = f"\033[1m{value}\033[0m"  # Bright color for False
-    
-    print(f"{padded_caption} | {colored_value}")
 
 
 def _show_all_configuration_tables(config_env):

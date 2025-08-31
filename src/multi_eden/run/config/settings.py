@@ -491,11 +491,11 @@ def print_stub_usage_table():
                 
                 # Get the usage and provider based on current value
                 if current_value:
-                    # Stub mode - use dim gray like old integrations summary for True
+                    # Stub mode - use dim gray for True
                     usage = "\033[2mStub\033[0m"
                     provider = stub_info.get(True, 'Enabled')
                 else:
-                    # Real mode - use bright white like old integrations summary for False
+                    # Real mode - use bright white for False
                     usage = "\033[1mReal\033[0m"
                     provider = stub_info.get(False, 'Disabled')
             else:
