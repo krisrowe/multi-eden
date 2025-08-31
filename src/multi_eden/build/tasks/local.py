@@ -399,17 +399,10 @@ def api_stop(ctx):
     # Step 2: Reliable fallback - kill ALL matching processes aggressively
     print("🔄 Using reliable fallback method...")
     
-    # Kill uvicorn processes (same pattern api-start detects)
-    subprocess.run(["pkill", "-KILL", "-f", "python.*-m.*uvicorn"], capture_output=True)
-    
-    # Kill any python module processes (same pattern api-start detects)
+    # Kill specific API server processes (avoid killing invoke itself)
     subprocess.run(["pkill", "-KILL", "-f", "python.*-m.*core.*serve"], capture_output=True)
-    
-    # Kill any generic uvicorn processes
-    subprocess.run(["pkill", "-KILL", "-f", "uvicorn"], capture_output=True)
-    
-    # Kill any generic python API processes
-    subprocess.run(["pkill", "-KILL", "-f", "python.*api"], capture_output=True)
+    subprocess.run(["pkill", "-KILL", "-f", "uvicorn.*core.api:app"], capture_output=True)
+    subprocess.run(["pkill", "-KILL", "-f", "python.*uvicorn.*core.api"], capture_output=True)
     
     print("✅ All server processes forcefully stopped")
     
