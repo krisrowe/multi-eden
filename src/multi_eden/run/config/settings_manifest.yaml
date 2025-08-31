@@ -29,23 +29,35 @@ settings:
     source: "env-var:CUSTOM_AUTH_ENABLED"
     secret: false
     description: "Enable custom JWT authentication instead of Firebase"
+    stub-indicator:
+      type: "User Authentication"
+      true: "Custom Auth"
+      false: "Firebase"
     
 
   - name: "stub-ai"
     source: "env-var:STUB_AI"
     secret: false
     description: "Use stubbed AI provider for testing"
+    stub-indicator:
+      type: "AI Model"
+      true: "Static Model Output"
+      false: "Model Provider API"
     
   - name: "stub-db"
     source: "env-var:STUB_DB"
     secret: false
     description: "Use stubbed database provider for testing"
+    stub-indicator:
+      type: "Database"
+      true: "TinyDB"
+      false: "Firestore"
     
-  # API Configuration
-  - name: "api-testing-url"
-    source: "env-var:API_TESTING_URL"
-    secret: false
-    description: "Base URL for API testing requests"
+#  # API Configuration
+#  - name: "api-testing-url"
+#    source: "env-var:API_TESTING_URL"
+#    secret: false
+#    description: "Base URL for API testing requests"
     
   # Project Configuration
   - name: "project-id"

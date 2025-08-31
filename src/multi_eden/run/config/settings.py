@@ -49,6 +49,7 @@ class SettingDefinition:
     secret: bool
     description: str
     required: bool = True
+    stub_indicator: Optional[Dict[bool, str]] = None
 
 
 # Global cache for settings manifest and values
@@ -84,7 +85,8 @@ def _load_settings_manifest() -> List[SettingDefinition]:
                 source=setting_data['source'],
                 secret=setting_data.get('secret', False),
                 description=setting_data.get('description', ''),
-                required=setting_data.get('required', True)
+                required=setting_data.get('required', True),
+                stub_indicator=setting_data.get('stub-indicator')
             )
             settings_list.append(setting)
         
@@ -453,3 +455,70 @@ def print_settings():
     print("", file=sys.stderr)
 
 
+def get_settings_with_stub_indicators() -> List[SettingDefinition]:
+    """Get all settings that have stub-indicator configuration."""
+    manifest = _load_settings_manifest()
+    stub_settings = [setting for setting in manifest if setting.stub_indicator is not None]
+    return stub_settings
+
+
+def print_stub_usage_table():
+    """Print stub usage table showing provider configurations from settings manifest."""
+    import sys
+    
+    try:
+        stub_settings = get_settings_with_stub_indicators()
+        
+        if not stub_settings:
+            return
+            
+        print("\n" + "="*60, file=sys.stderr)
+        print("🔧 STUB USAGE", file=sys.stderr)
+        print("="*60, file=sys.stderr)
+        print(f"{'Type':<20} {'Usage':<8} {'Provider':<30}", file=sys.stderr)
+        print("-"*60, file=sys.stderr)
+        
+        for setting in stub_settings:
+            stub_info = setting.stub_indicator
+            setting_type = stub_info['type']
+            
+            # Get current value
+            if is_setting_available(setting.name):
+                current_value = get_setting(setting.name)
+                # Convert to boolean if it's a string
+                if isinstance(current_value, str):
+                    current_value = current_value.lower() in ('true', '1', 'yes')
+                
+                # Get the usage and provider based on current value
+                if current_value:
+                    # Stub mode - use dim gray like old integrations summary for True
+                    usage = "\033[2mStub\033[0m"
+                    provider = stub_info.get(True, 'Enabled')
+                else:
+                    # Real mode - use bright white like old integrations summary for False
+                    usage = "\033[1mReal\033[0m"
+                    provider = stub_info.get(False, 'Disabled')
+            else:
+                usage = "\033[90m?\033[0m"  # Gray for unknown
+                provider = "(not available)"
+            
+            # Handle alignment with color codes - calculate visible length and add manual padding
+            visible_usage = usage.replace('\033[2m', '').replace('\033[1m', '').replace('\033[90m', '').replace('\033[0m', '')
+            usage_padding = 8 - len(visible_usage)
+            padded_usage = usage + ' ' * usage_padding
+            
+            print(f"{setting_type:<20} {padded_usage} {provider:<30}", file=sys.stderr)
+        
+        print("="*60, file=sys.stderr)
+        print("", file=sys.stderr)
+        
+    except Exception as e:
+        # If we can't show stub usage table, continue without it
+        print(f"⚠️  Could not display stub usage table: {e}", file=sys.stderr)
+        print("", file=sys.stderr)
+
+
+def print_runtime_config():
+    """Print complete runtime configuration including settings and stub usage tables."""
+    print_settings()
+    print_stub_usage_table()

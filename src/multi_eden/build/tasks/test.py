@@ -120,8 +120,10 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
             # Show all configuration tables (both normal and --show-config)
             _show_all_configuration_tables(config_env)
             
-            # Exit early if only showing configuration
+            # Show runtime configuration for --show-config
             if show_config:
+                from ...run.config import print_runtime_config
+                print_runtime_config()
                 print("📊 Configuration display complete. Exiting without running tests.")
                 return None
                 
@@ -186,7 +188,11 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
     
     cmd.extend(valid_test_paths)
     
-    print(f"🔍 Including pytest {' '.join(cmd[4:])}")
+    print(f"🔍 Including pytest {' '.join(cmd[4:])}")    
+    
+    # Show runtime configuration that tests will use
+    from ...run.config import print_runtime_config
+    print_runtime_config()
     
     # Run pytest with environment variables
     print(f"🧪 Running {suite} tests...")
@@ -420,9 +426,6 @@ def _show_all_configuration_tables(config_env):
         
         # Table 3: SECRETS CONFIGURATION
         _show_secrets_configuration(config_env)
-        
-        # Table 4: INTEGRATIONS SUMMARY
-        _show_integrations_summary()
         
     except Exception as e:
         print(f"⚠️  Could not display configuration tables: {e}")

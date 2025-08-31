@@ -56,10 +56,10 @@ def load_env(env_name: str, repo_root=None, quiet: bool = False) -> None:
                 else:
                     env_value = str(value)
                 
-                source_info = "environments.yaml"
+                source_info = env_def.source
                 
-            elif env_def.source.startswith("environment:"):
-                # Explicit: "environment:field" -> read field from environments.yaml
+            elif env_def.source.startswith("env-config:"):
+                # Explicit: "env-config:field" -> read field from environments.yaml
                 field_name = env_def.source.split(":", 1)[1]
                 
                 value = getattr(settings, field_name, None)
@@ -72,7 +72,7 @@ def load_env(env_name: str, repo_root=None, quiet: bool = False) -> None:
                 else:
                     env_value = str(value)
                 
-                source_info = f"environments.yaml:{field_name}"
+                source_info = env_def.source
                     
             elif env_def.source == "derived":
                 # Check condition first
@@ -87,7 +87,7 @@ def load_env(env_name: str, repo_root=None, quiet: bool = False) -> None:
                 # Call method on settings
                 method = getattr(settings, env_def.method)
                 env_value = method()
-                source_info = f"{env_def.method}()"
+                source_info = env_def.source
                 
             elif env_def.source.startswith("app:"):
                 # Read from app.yaml: "app:field" -> read field from app.yaml
@@ -96,7 +96,7 @@ def load_env(env_name: str, repo_root=None, quiet: bool = False) -> None:
                 env_value = app_config.get(field_name)
                 if env_value is not None:
                     env_value = str(env_value)
-                    source_info = f"app.yaml:{field_name}"
+                    source_info = env_def.source
             
             # Set environment variable
             if env_value is not None:
@@ -106,18 +106,18 @@ def load_env(env_name: str, repo_root=None, quiet: bool = False) -> None:
         # Display environment variables table (only if not quiet)
         if env_vars_info and not quiet:
             import sys
-            print("\n" + "=" * 85, file=sys.stderr)
+            print("\n" + "=" * 74, file=sys.stderr)
             print("🔧 ENVIRONMENT VARIABLES", file=sys.stderr)
-            print("=" * 85, file=sys.stderr)
-            print(f"{'VARIABLE':<25} {'VALUE':<34} {'SOURCE':<19}", file=sys.stderr)
-            print("-" * 85, file=sys.stderr)
+            print("=" * 74, file=sys.stderr)
+            print(f"{'VARIABLE':<21} {'VALUE':<21} {'SOURCE':<26}", file=sys.stderr)
+            print("-" * 74, file=sys.stderr)
             for env_var, value, source in env_vars_info:
-                # Truncate long values for display (max 34 chars)
-                display_value = value if len(value) <= 34 else value[:31] + "..."
+                # Truncate long values for display (max 21 chars)
+                display_value = value if len(value) <= 21 else value[:18] + "..."
                 # Use source as-is (already descriptive)
                 display_source = source
-                print(f"{env_var:<25} {display_value:<34} {display_source:<19}", file=sys.stderr)
-            print("=" * 85, file=sys.stderr)
+                print(f"{env_var:<21} {display_value:<21} {display_source:<26}", file=sys.stderr)
+            print("=" * 74, file=sys.stderr)
         
         if not settings.project_id and not quiet:
             import sys
