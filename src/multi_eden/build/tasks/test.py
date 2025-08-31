@@ -59,7 +59,8 @@ def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config
     
     try:
         # Load environment with test mode - will validate requirements
-        load_env(env_name=config_env, test_mode=suite, quiet=quiet)
+        env_source = "--config-env" if config_env else "(not specified)"
+        load_env(env_name=config_env, test_mode=suite, quiet=quiet, env_source=env_source)
         print(f"✅ Configuration loaded for suite '{suite}'" + (f" with environment '{config_env}'" if config_env else ""))
     except SystemExit:
         # load_env already printed the error and called sys.exit(1)

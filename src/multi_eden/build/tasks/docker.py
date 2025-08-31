@@ -121,8 +121,7 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
         from multi_eden.build.config.env_vars_manifest import env_vars_manifest
         from multi_eden.build.config.loading import load_env
         
-        # Load environment (this sets up environment variables)
-        load_env(config_env)
+        # Environment variables are already loaded by the decorator
         
         # Get environment variable names from manifest
         env_var_names = env_vars_manifest.get_env_var_names()
@@ -258,7 +257,7 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
         try:
             from multi_eden.build.config.loading import load_env
             
-            load_env(config_env)
+            # Environment variables are already loaded by the decorator
             
             # Copy environment variables set by load_env() to our env_vars dict
             from ..config.env_vars_manifest import env_vars_manifest

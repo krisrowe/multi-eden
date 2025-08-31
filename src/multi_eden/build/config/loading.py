@@ -23,7 +23,7 @@ _load_env_called = False
 
 
 def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None, 
-             repo_root=None, quiet: bool = False) -> None:
+             repo_root=None, quiet: bool = False, env_source: str = "unknown") -> None:
     """Load configuration and set up all environment variables for build tasks.
     
     This is the single point of configuration loading. It stages environment variables
@@ -35,6 +35,7 @@ def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None,
         test_mode: Test mode name (e.g., 'unit', 'ai', 'db') - optional  
         repo_root: Repository root path (unused, kept for compatibility)
         quiet: If True, suppress environment variable display output
+        env_source: How env_name was determined (e.g., '--config-env', 'task default')
         
     Raises:
         RuntimeError: If load_env has already been called
@@ -75,8 +76,12 @@ def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None,
             print(f"❌ Failed to load test mode '{test_mode}': {e}", file=sys.stderr)
             sys.exit(1)
     
+    # We'll show CONFIGURATION SOURCE table after processing to get accurate counts
+    
     # Step 3: Process environment variables from manifest
     app_config = _get_app_config()
+    suite_settings_count = 0
+    config_settings_count = 0
     
     for env_var in env_vars_manifest:
         # Check conditions first
@@ -106,12 +111,25 @@ def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None,
             value = None
             source = None
             
-            if setting_key in test_config:
-                value = test_config[setting_key]
-                source = 'test-config'
-            elif env_settings and hasattr(env_settings, setting_key):
-                value = getattr(env_settings, setting_key)
+            # Check both sources to detect overrides
+            test_value = test_config.get(setting_key) if test_config else None
+            config_value = getattr(env_settings, setting_key, None) if env_settings and hasattr(env_settings, setting_key) else None
+            
+            # Determine final value and source description
+            if test_value is not None:
+                value = test_value
+                if config_value is not None:
+                    source = 'test-config (\033[2;9menv-config\033[0m)'
+                else:
+                    source = 'test-config'
+                suite_settings_count += 1
+            elif config_value is not None:
+                value = config_value
                 source = 'env-config'
+                config_settings_count += 1
+            else:
+                value = None
+                source = None
             
             if value is not None:
                 # Convert boolean to lowercase string
@@ -174,6 +192,10 @@ def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None,
         print(f"❌ Failed to set up secrets: {e}", file=sys.stderr)
         sys.exit(1)
     
+    # Show CONFIGURATION SOURCE table (unless quiet)
+    if not quiet:
+        _show_configuration_source(env_name, test_mode, env_source, test_config, env_vars_manifest, suite_settings_count, config_settings_count)
+    
     # Step 8: Display build environment variables (always shown)
     _display_environment_variables(env_vars_info)
     if not staged_env_vars.get('PROJECT_ID'):
@@ -220,3 +242,55 @@ def _get_app_config() -> Optional[Dict[str, Any]]:
             return yaml.safe_load(f)
     except Exception:
         return None
+
+
+def _show_configuration_source(env_name: Optional[str], test_mode: Optional[str], 
+                              env_source: str, test_config: dict, env_vars_manifest: list,
+                              suite_settings_count: int, config_settings_count: int) -> None:
+    """Display CONFIGURATION SOURCE table showing where configuration comes from."""
+    import sys
+    
+    # Color codes
+    CYAN = '\033[1;36m'  # Bright cyan for values
+    GRAY = '\033[2m'     # Dim gray for "not specified"
+    RESET = '\033[0m'
+    
+    print("\n" + "="*50, file=sys.stderr)
+    print("🔧 CONFIGURATION SOURCE", file=sys.stderr)
+    print("="*50, file=sys.stderr)
+    
+    # Show Suite section only when test_mode is provided
+    if test_mode:
+        print(f"Test Suite: {CYAN}{test_mode}{RESET}", file=sys.stderr)
+        print(f"  └─ As per: invoke test <suite>", file=sys.stderr)
+        print(f"  └─ Source: tests.yaml", file=sys.stderr)
+        
+        # Show test paths if available
+        if test_config and 'tests' in test_config and 'paths' in test_config['tests']:
+            test_paths = test_config['tests']['paths']
+            colored_paths = [f"{CYAN}{path}{RESET}" for path in test_paths]
+            paths_str = ", ".join(colored_paths)
+            print(f"  └─ Test Paths: {paths_str}", file=sys.stderr)
+        
+        # Show count of settings from test mode
+        total_settings = len(env_vars_manifest)
+        print(f"  └─ {CYAN}{suite_settings_count} of {total_settings}{RESET} settings from suite", file=sys.stderr)
+        print("", file=sys.stderr)  # Empty line between sections
+    
+    # Show Config Environment section
+    if env_name:
+        print(f"Config Environment: {CYAN}{env_name}{RESET}", file=sys.stderr)
+        print(f"  └─ As per: {env_source}", file=sys.stderr)
+        print(f"  └─ Source: environments.yaml", file=sys.stderr)
+        
+        # Show count of settings from config environment
+        total_settings = len(env_vars_manifest)
+        print(f"  └─ {CYAN}{config_settings_count} of {total_settings}{RESET} settings from config", file=sys.stderr)
+        
+        # Show helpful tip when config environment is unused
+        if config_settings_count == 0:
+            print(f"    └─ \033[33m💡 Tip: --config-env can be omitted for {CYAN}{test_mode}{RESET} suite\033[0m", file=sys.stderr)
+    else:
+        print(f"Config Environment: {GRAY}(not specified){RESET}", file=sys.stderr)
+    
+    print("="*50, file=sys.stderr)

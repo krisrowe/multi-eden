@@ -282,7 +282,8 @@ def api_start(ctx, port=None, env="local", background=True):
         # Load environment configuration
         try:
             from multi_eden.build.config.loading import load_env
-            load_env(env)
+            env_source = "--env" if env != "local" else "task default"
+            load_env(env, env_source=env_source)
             print(f"🔧 Loaded configuration from {env} environment")
         except Exception as e:
             print(f"❌ Failed to load configuration for environment '{env}': {e}")

@@ -78,15 +78,6 @@ def py(ctx, config_env=None, module=None, script=None, code=None, args=""):
         repo_root = get_repo_root()
         core_dir = repo_root / "core"
         
-        # Load environment configuration
-        try:
-            from multi_eden.build.config.loading import load_env
-            load_env(config_env)
-            print(f"✅ Environment configuration loaded from {config_env}")
-        except Exception as e:
-            print(f"❌ Failed to load environment configuration: {e}")
-            return False
-        
         # Build and execute command based on mode
         if module:
             return _execute_module(module, args, core_dir)
@@ -199,16 +190,7 @@ def env(ctx, config_env=None):
         print(f"🔧 Environment Configuration for: {config_env}")
         print("=" * 50)
         
-        # Load environment configuration
-        try:
-            from multi_eden.build.config.loading import load_env
-            load_env(config_env)
-            print(f"✅ Environment configuration loaded from {config_env}")
-        except Exception as e:
-            print(f"❌ Failed to load environment configuration: {e}")
-            return False
-        
-        # Show key environment variables
+        # Display environment variables
         import os
         from ..secrets import secrets_manifest
         from ..config.env_vars_manifest import env_vars_manifest

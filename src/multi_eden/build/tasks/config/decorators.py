@@ -93,7 +93,7 @@ def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict,
     try:
         from multi_eden.build.config.loading import load_env
         
-        load_env(env_name, quiet=quiet)  # Load the environment (sets up secrets)
+        load_env(env_name, quiet=quiet, env_source=selection_method)  # Load the environment (sets up secrets)
         
         # Configuration environment loaded successfully (moved to debug logging)
         import logging
@@ -104,7 +104,7 @@ def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict,
         print(f"❌ {error_msg}")
         raise ConfigEnvironmentLoadError(error_msg)
     
-    return env_name
+    return env_name, selection_method
 
 
 def requires_config_env(func: Callable) -> Callable:
@@ -147,7 +147,7 @@ def requires_config_env(func: Callable) -> Callable:
             print("🐛 Debug logging enabled (LOG_LEVEL=DEBUG)", file=sys.stderr)
         
         # Use the helper method to resolve the environment (no callback)
-        resolved_env = resolve_config_env(config_env, args, kwargs, task_name, None, quiet)
+        resolved_env, selection_method = resolve_config_env(config_env, args, kwargs, task_name, None, quiet)
         kwargs['config_env'] = resolved_env
         
         # Now run the original task
