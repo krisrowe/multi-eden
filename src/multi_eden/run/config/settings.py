@@ -50,6 +50,7 @@ class SettingDefinition:
     description: str
     required: bool = True
     stub_indicator: Optional[Dict[bool, str]] = None
+    conditions: Optional[Dict[str, Any]] = None
 
 
 # Global cache for settings manifest and values
@@ -86,7 +87,8 @@ def _load_settings_manifest() -> List[SettingDefinition]:
                 secret=setting_data.get('secret', False),
                 description=setting_data.get('description', ''),
                 required=setting_data.get('required', True),
-                stub_indicator=setting_data.get('stub-indicator')
+                stub_indicator=setting_data.get('stub-indicator'),
+                conditions=setting_data.get('conditions')
             )
             settings_list.append(setting)
         
@@ -379,6 +381,40 @@ def get_authorization():
     """
     from ..auth.config import get_authorization_config
     return get_authorization_config()
+
+
+def is_setting_required(name: str) -> bool:
+    """Check if a setting is required based on its conditions.
+    
+    Returns True if the setting has no conditions or if any condition is met (OR logic).
+    """
+    try:
+        manifest = _load_settings_manifest()
+        for setting in manifest:
+            if setting.name == name:
+                if not setting.conditions:
+                    return setting.required
+                
+                # Evaluate all conditions (OR logic - any condition being true makes it required)
+                for condition_setting, expected_value in setting.conditions.items():
+                    try:
+                        actual_value = get_setting(condition_setting)
+                        # Convert to boolean for comparison
+                        if isinstance(expected_value, bool):
+                            actual_bool = actual_value.lower() == 'true'
+                            if actual_bool == expected_value:
+                                return setting.required  # Found a matching condition
+                        else:
+                            if actual_value == str(expected_value):
+                                return setting.required  # Found a matching condition
+                    except Exception:
+                        continue  # Skip failed condition checks
+                
+                # No conditions matched, so not required
+                return False
+        return False
+    except Exception:
+        return False
 
 
 def is_setting_available(name: str) -> bool:

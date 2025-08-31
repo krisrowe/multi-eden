@@ -7,16 +7,24 @@ modes:
     description: "Unit tests with mocked dependencies"
     tests:
       paths: ["unit", "providers", "api"]
-    default-env: "unit-testing"
-    in-memory-api: true
-    omit-integration: true
+    # Test mode provides complete config - no env needed
+    stub_ai: true
+    stub_db: true
+    api_in_memory: true
+    local: true
+    custom_auth_enabled: true
+    omit_integration: true
     
   ai:
     description: "Integration tests with real AI API calls"
     tests:
       paths: ["ai"]
-    default-env: "ai-testing"
-    in-memory-api: true
+    # Test mode provides partial config - env required for project_id etc
+    stub_ai: false
+    stub_db: true
+    api_in_memory: true
+    local: true
+    custom_auth_enabled: true
     
   db:
     description: "Database tests with Firebase data provider"

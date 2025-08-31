@@ -14,7 +14,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
 from invoke import task
 
-from ..config.loading import _get_secret_from_manager, _expand_local_default
+# Secret manager functions available in secrets_setup module if needed
 
 
 @dataclass

@@ -23,6 +23,8 @@ settings:
     source: "env-var:GEMINI_API_KEY"
     secret: true
     description: "Google Gemini API key for AI services"
+    conditions:
+      stub-ai: false
     
   # Configuration Settings
   - name: "custom-auth-enabled"
@@ -53,7 +55,16 @@ settings:
       true: "TinyDB"
       false: "Firestore"
     
-#  # API Configuration
+  # API Configuration
+  - name: "api-in-memory"
+    source: "env-var:TEST_API_IN_MEMORY"
+    secret: false
+    description: "Whether API runs in-memory for tests or as separate process"
+    stub-indicator:
+      type: "API Server"
+      true: "In-Memory (TestClient)"
+      false: "Remote Process"
+    
 #  - name: "api-testing-url"
 #    source: "env-var:API_TESTING_URL"
 #    secret: false
@@ -64,6 +75,11 @@ settings:
     source: "env-var:PROJECT_ID"
     secret: false
     description: "Google Cloud project ID for cloud services"
+    conditions:
+      # Required when ANY Google Cloud service is used (OR logic)
+      stub-ai: false        # Need project-id for Gemini API
+      stub-db: false        # Need project-id for Firestore
+      custom-auth-enabled: false  # Need project-id for Firebase Auth
     
   # Application Configuration (from environment variable)
   - name: "app-id"

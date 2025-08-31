@@ -77,7 +77,7 @@ def list_environments(ctx):
         for env_name in sorted(sdk_envs.keys()):
             env_config = sdk_envs[env_name]
             project_id = env_config.get('project_id', 'None')
-            api_mode = 'in-memory' if env_config.get('api_in_memory', True) else 'out-of-process'
+            api_mode = 'in-memory' if env_config.get('api_in_memory') else 'out-of-process'
             print(f"   • {env_name:15} (project: {project_id:12}, api: {api_mode})", file=sys.stderr)
         
         print("", file=sys.stderr)
@@ -89,7 +89,7 @@ def list_environments(ctx):
             for env_name in sorted(app_envs.keys()):
                 env_config = app_envs[env_name]
                 project_id = env_config.get('project_id', 'None')
-                api_mode = 'in-memory' if env_config.get('api_in_memory', True) else 'out-of-process'
+                api_mode = 'in-memory' if env_config.get('api_in_memory') else 'out-of-process'
                 print(f"   • {env_name:15} (project: {project_id:12}, api: {api_mode})", file=sys.stderr)
         else:
             print("🏢 App Overrides: None found (config/env/settings.yaml missing)", file=sys.stderr)

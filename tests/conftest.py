@@ -29,12 +29,10 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     """Configure pytest and show what tests are actually queued for execution."""
     try:
-        # Get test mode configuration (environment should already be set by test.py)
-        from multi_eden.run.config.testing import get_mode
-        test_mode_config = get_mode()
-        
-        # Configuration info is already shown in CONFIGURATION ENVIRONMENT table
-        # No need to duplicate it here
+        # Test mode configuration is already loaded and environment is set by test.py
+        # The build system handles all configuration loading via load_env()
+        # No additional configuration loading needed in conftest
+        pass
         
     except Exception as e:
         pytest.exit(f"❌ Failed to load mode configuration: {e}")

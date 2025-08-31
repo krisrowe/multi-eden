@@ -5,54 +5,18 @@ This module provides tasks for running different types of tests
 with appropriate configuration and environment setup.
 """
 
-import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
+
 from invoke import task
+from ..config.test_mode import get_test_mode_config
 from multi_eden.build.tasks.config.setup import get_task_default_env
 from multi_eden.build.tasks.config.decorators import requires_config_env
 import os
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-def get_suite_default_env(suite):
-    """
-    Get the default environment for a specific test suite.
-    
-    Args:
-        suite: Test suite name (unit, ai, firestore, api)
-        
-    Returns:
-        str: Environment name for the suite, or None if not found
-    """
-    # Use SDK's config system to get suite default environment
-    from multi_eden.run.config.testing import get_mode
-    try:
-        mode_config = get_mode(suite)
-        return mode_config.default_env
-    except Exception:
-        return None
-
-
-def should_omit_integration_tests(suite):
-    """
-    Check if integration tests should be omitted for the given suite.
-    
-    Args:
-        suite: Test suite name (unit, integration, firestore, api)
-        
-    Returns:
-        bool: True if integration tests should be omitted
-    """
-    # Use SDK's config system to check omit-integration setting
-    from multi_eden.run.config.testing import get_mode
-    try:
-        mode_config = get_mode(suite)
-        return getattr(mode_config, 'omit_integration', False)
-    except Exception:
-        return False
 
 
 @task(help={
@@ -80,19 +44,34 @@ def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config
         print("   Available suites: unit, ai, firestore, api")
         sys.exit(1)
     
-    # Use the helper method to resolve the environment
-    from multi_eden.build.tasks.config.decorators import resolve_config_env
+    # Load test mode config once
+    test_config = None
+    if suite:
+        from multi_eden.build.config.test_mode import get_test_mode_config
+        try:
+            test_config = get_test_mode_config(suite)
+        except Exception as e:
+            print(f"❌ Failed to load test mode '{suite}': {e}", file=sys.stderr)
+            sys.exit(1)
     
-    # Create a callback that gets the suite-specific default
-    def get_suite_env_callback(ctx, suite, **kwargs):
-        return get_suite_default_env(suite)
+    # Use new load_env system
+    from multi_eden.build.config.loading import load_env
     
-    resolved_env = resolve_config_env(config_env, (suite,), {'verbose': verbose, 'quiet': quiet}, 'test', get_suite_env_callback, quiet)
+    try:
+        # Load environment with test mode - will validate requirements
+        load_env(env_name=config_env, test_mode=suite, quiet=quiet)
+        print(f"✅ Configuration loaded for suite '{suite}'" + (f" with environment '{config_env}'" if config_env else ""))
+    except SystemExit:
+        # load_env already printed the error and called sys.exit(1)
+        raise
+    except Exception as e:
+        print(f"❌ Failed to load configuration: {e}", file=sys.stderr)
+        sys.exit(1)
     
-    return run_pytest(suite, resolved_env, verbose, test_name, show_config)
+    return run_pytest(suite, config_env, verbose, test_name, show_config, test_config, quiet)
 
 
-def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
+def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, test_config=None, quiet=False):
     """
     Run pytest with the specified suite and environment.
     
@@ -102,12 +81,24 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
         verbose: Whether to enable verbose output
         test_name: Optional test name filter (e.g., "test_long_name_product")
         show_config: Whether to show detailed configuration including secrets
+        test_config: Pre-loaded test configuration (optional)
+        quiet: Whether to suppress runtime configuration display
         
     Returns:
         subprocess.CompletedProcess: Result of pytest execution
     """
-    # Get test paths from configuration
-    test_paths = get_test_paths_from_config(suite)
+    # Get test paths from test config
+    test_paths = None
+    if test_config:
+        test_paths = test_config.get('tests', {}).get('paths', [])
+        if test_paths:
+            # Make a copy to modify
+            test_paths = test_paths.copy()
+            # If providers is in the list, ensure it runs FIRST
+            if 'providers' in test_paths and test_paths.index('providers') != 0:
+                test_paths.remove('providers')
+                test_paths.insert(0, 'providers')
+    
     if not test_paths:
         print(f"⚠️  No test paths configured for suite '{suite}'")
         return None
@@ -133,7 +124,7 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
                 return None
     
     # Use current environment variables (set by load_env)
-    env_vars = os.environ.copy()
+    # Environment variables are already set by load_env() in the current process
     
     # Use the virtual environment's pytest directly (same as Makefile)
     venv_pytest = Path.cwd() / "venv" / "bin" / "pytest"
@@ -157,7 +148,7 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
     ])
     
     # Filter out integration tests if omit-integration is true
-    if should_omit_integration_tests(suite):
+    if test_config and test_config.get('omit_integration', False):
         cmd.extend(["-m", "not integration"])
         print(f"🔒 Filtering out integration tests for {suite} test suite (omit-integration: true)")
     
@@ -190,51 +181,34 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False):
     
     print(f"🔍 Including pytest {' '.join(cmd[4:])}")    
     
-    # Show runtime configuration that tests will use
-    from ...run.config import print_runtime_config
-    print_runtime_config()
+    # Show runtime configuration that tests will use (unless quiet)
+    if not quiet:
+        from ...run.config import print_runtime_config
+        print_runtime_config()
     
-    # Run pytest with environment variables
+    # Run pytest directly in the same process (not subprocess)
+    # This ensures environment variables set by load_env() are available
     print(f"🧪 Running {suite} tests...")
     
-    result = subprocess.run(cmd, cwd=Path.cwd(), env=env_vars)
+    import pytest
     
-    if result.returncode == 0:
-        print("✅ All tests passed!")
-    else:
-        print(f"❌ Tests failed with exit code {result.returncode}")
+    # Convert command to pytest args (skip the pytest executable)
+    pytest_args = cmd[1:] if cmd[0].endswith('pytest') else cmd[2:]  # Skip 'python -m pytest'
     
-    return result
-
-def get_test_paths_from_config(suite):
-    """
-    Get test paths for a specific suite from configuration.
-    
-    Args:
-        suite: Test suite name
-        
-    Returns:
-        list: List of test path strings, or None if not found
-    """
-    # Use SDK's config system to get test paths
-    from multi_eden.run.config.testing import get_mode
     try:
-        mode_config = get_mode(suite)
-        test_paths = mode_config.get_test_paths().copy()  # Make a copy to modify
+        result_code = pytest.main(pytest_args)
         
-        # If providers is already in the list, ensure it runs FIRST by putting it at the beginning
-        if 'providers' in test_paths:
-            if test_paths.index('providers') != 0:
-                # If providers is already in the list but not first, move it to first
-                test_paths.remove('providers')
-                test_paths.insert(0, 'providers')
-                pass  # Providers moved to first position
-            else:
-                pass  # Providers already in first position
-        return test_paths
-    except Exception as e:
-        print(f"⚠️  Could not load test configuration for suite '{suite}': {e}")
-        return None
+        if result_code == 0:
+            print("✅ All tests passed!")
+        else:
+            print(f"❌ Tests failed with exit code {result_code}")
+        
+        return result_code
+    except SystemExit as e:
+        # pytest calls sys.exit(), catch it and return the code
+        return e.code if e.code is not None else 1
+
+
 
 
 @task(help={
@@ -272,11 +246,7 @@ def pytest_config(ctx, suite, env=None):
     if env:
         print(f"🌍 Using environment: {env}")
     else:
-        suite_env = get_suite_default_env(suite)
-        if suite_env:
-            print(f"🌍 Suite default environment: {suite_env}")
-        else:
-            print("⚠️  No default environment configured for this suite")
+        print("⚠️  No environment specified - test mode must provide complete config")
     
     # Show pytest command that would be run
     cmd = ["python", "-m", "pytest", "--suite", suite]

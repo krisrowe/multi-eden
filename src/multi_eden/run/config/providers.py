@@ -74,13 +74,13 @@ class ProviderManager:
     def is_custom_auth_enabled(self) -> bool:
         """Check if custom authentication is enabled.
         
-        Uses CUSTOM_AUTH_ENABLED environment variable, defaults to False.
+        Uses settings system to read custom-auth-enabled setting.
         
         Returns:
             True if custom authentication is enabled
         """
-        env_value = os.environ.get('CUSTOM_AUTH_ENABLED', 'false')
-        return env_value.lower() in ('true', '1', 'yes', 'on')
+        from . import get_setting
+        return get_setting('custom-auth-enabled').lower() == 'true'
     
     def is_ai_mocked(self) -> bool:
         """Check if AI model is configured to use mocked responses.

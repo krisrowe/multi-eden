@@ -1,299 +1,222 @@
-"""
-Secret loading utilities for build tasks.
+"""Environment configuration loading for build tasks.
 
-Handles loading secrets from Secret Manager or generating ephemeral values
-based on the manifest configuration.
-"""
+Handles loading environment configuration from environments.yaml and test modes,
+layering test mode settings on top of environment settings, and setting up
+all environment variables for build task execution.
+
+This module implements a single-call architecture where load_env() is called
+once per process and sets up all required environment variables."""
 
 import os
+import sys
 import logging
 from typing import Dict, Any, Optional
 
-from ..secrets.manifest import load_secrets_manifest
+from .test_mode import get_test_mode_config
+from .settings import load_settings
+from ..secrets_setup import setup_secrets_environment
 
 logger = logging.getLogger(__name__)
 
+# Global flag to track if load_env has been called
+_load_env_called = False
 
-def load_env(env_name: str, repo_root=None, quiet: bool = False) -> None:
+
+def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None, 
+             repo_root=None, quiet: bool = False) -> None:
     """Load configuration and set up all environment variables for build tasks.
     
+    This is the single point of configuration loading. It stages environment variables
+    from environment config, overlays test mode config, validates requirements, and
+    applies all environment variables at once.
+    
     Args:
-        env_name: Environment name (e.g., 'dev', 'prod', 'unit-testing')
+        env_name: Environment name (e.g., 'dev', 'prod') - optional
+        test_mode: Test mode name (e.g., 'unit', 'ai', 'db') - optional  
         repo_root: Repository root path (unused, kept for compatibility)
         quiet: If True, suppress environment variable display output
+        
+    Raises:
+        RuntimeError: If load_env has already been called
+        ValueError: If configuration is insufficient
     """
-    from pathlib import Path
-    from .settings import load_settings
+    global _load_env_called
+    if _load_env_called:
+        raise RuntimeError("load_env() can only be called once per process")
+    _load_env_called = True
     
-    logger.debug(f"Loading environment configuration for: {env_name}")
+    logger.debug(f"Loading configuration - env_name: {env_name}, test_mode: {test_mode}")
     
-    try:
-        # Load unified settings and environment variables manifest
-        settings = load_settings(env_name)
-        from .env_vars_manifest import load_env_vars_manifest
-        env_vars_manifest = load_env_vars_manifest()
-        
-        # Set up environment variables from manifest
-        env_vars_info = []
-        
-        # Process each manifest entry
-        for env_def in env_vars_manifest:
-            env_value = None
-            
-            source_info = "environments.yaml"  # Default source
-            
-            if env_def.source == "setting":
-                # Legacy: Auto-derive setting_key: "PROJECT_ID" -> "project_id"
-                setting_key = env_def.setting_key or env_def.name.lower()
-                
-                value = getattr(settings, setting_key, None)
-                if value is None:
-                    continue  # Skip if setting not present
-                    
-                # Transform booleans to lowercase strings
-                if isinstance(value, bool):
-                    env_value = str(value).lower()
-                else:
-                    env_value = str(value)
-                
-                source_info = env_def.source
-                
-            elif env_def.source.startswith("env-config:"):
-                # Explicit: "env-config:field" -> read field from environments.yaml
-                field_name = env_def.source.split(":", 1)[1]
-                
-                value = getattr(settings, field_name, None)
-                if value is None:
-                    continue  # Skip if setting not present
-                    
-                # Transform booleans to lowercase strings
-                if isinstance(value, bool):
-                    env_value = str(value).lower()
-                else:
-                    env_value = str(value)
-                
-                source_info = env_def.source
-                    
-            elif env_def.source == "derived":
-                # Check condition first
-                if env_def.condition:
-                    condition_met = all(
-                        getattr(settings, k) == v 
-                        for k, v in env_def.condition.items()
-                    )
-                    if not condition_met:
-                        continue  # Skip if condition not met
-                
-                # Call method on settings
-                method = getattr(settings, env_def.method)
-                env_value = method()
-                source_info = env_def.source
-                
-            elif env_def.source.startswith("app:"):
-                # Read from app.yaml: "app:field" -> read field from app.yaml
-                field_name = env_def.source.split(":", 1)[1]
-                app_config = _get_app_config()
-                env_value = app_config.get(field_name)
-                if env_value is not None:
-                    env_value = str(env_value)
-                    source_info = env_def.source
-            
-            # Set environment variable
-            if env_value is not None:
-                os.environ.setdefault(env_def.name, env_value)
-                env_vars_info.append((env_def.name, env_value, source_info))
-        
-        # Display environment variables table (only if not quiet)
-        if env_vars_info and not quiet:
-            import sys
-            print("\n" + "=" * 74, file=sys.stderr)
-            print("🔧 ENVIRONMENT VARIABLES", file=sys.stderr)
-            print("=" * 74, file=sys.stderr)
-            print(f"{'VARIABLE':<21} {'VALUE':<21} {'SOURCE':<26}", file=sys.stderr)
-            print("-" * 74, file=sys.stderr)
-            for env_var, value, source in env_vars_info:
-                # Truncate long values for display (max 21 chars)
-                display_value = value if len(value) <= 21 else value[:18] + "..."
-                # Use source as-is (already descriptive)
-                display_source = source
-                print(f"{env_var:<21} {display_value:<21} {display_source:<26}", file=sys.stderr)
-            print("=" * 74, file=sys.stderr)
-        
-        if not settings.project_id and not quiet:
-            import sys
-            print(f"   ✅ No project ID - using local configuration", file=sys.stderr)
-        
-        # Set up secrets environment
-        _setup_secrets_environment(settings, env_name)
-        
-        if settings.project_id:
-            pass  # Secrets loaded from Secret Manager
-        elif settings.local:
-            pass  # Local default secrets configured for testing
-        else:
-            pass  # No secrets configured (none required)
-        
-        # Authorization is now handled through allowed-user-emails secret
-        
-    except Exception as e:
-        print(f"   ❌ Failed to load environment configuration: {e}")
-        raise RuntimeError(f"Environment configuration failed: {e}")
-
-
-def _setup_secrets_environment(settings: Dict[str, Any], config_env: str) -> None:
-    """Set up environment variables for secrets based on execution context."""
-    import logging
-    logger = logging.getLogger(__name__)
+    # Step 1: Load environment variables manifest
+    from .env_vars_manifest import load_env_vars_manifest
+    env_vars_manifest = load_env_vars_manifest()
     
-    secrets_manifest = load_secrets_manifest()
+    # Step 2: Stage environment variables from environment config and test mode
+    staged_env_vars = {}
+    env_vars_info = []
+    env_settings = None
+    test_config = {}
     
-    logger.debug(f"Setting up secrets for {config_env}, settings: {settings}")
-    
-    for secret in secrets_manifest:
-        logger.debug(f"Checking secret {secret.name}")
-        
-        # Check if secret is required for current settings
-        if not _is_secret_required(secret, settings):
-            logger.debug(f"Skipping secret {secret.name} - not required for current settings")
-            continue
-            
-        logger.debug(f"Secret {secret.name} is required")
-        
-        # Skip secrets without local default when API is out-of-process
-        api_in_memory = settings.api_in_memory
-        if not secret.local_default and not api_in_memory:
-            logger.debug(f"Skipping secret {secret.name} - no local default and API is out-of-process")
-            continue
-            
-        logger.debug(f"Setting up secret {secret.name}")
-        
-        # Set up the environment variable
+    # Load environment config if specified
+    if env_name:
         try:
-            _setup_secret_env_var(secret, settings, config_env)
-            logger.debug(f"Successfully set up secret {secret.name}")
+            env_settings = load_settings(env_name)
+            logger.debug(f"Loaded environment config for '{env_name}'")
         except Exception as e:
-            print(f"❌ Failed to setup secret {secret.name}: {e}")
-            raise
-
-
-def _setup_secret_env_var(secret_def, settings: Dict[str, Any], config_env: str) -> None:
-    """Set up environment variable for a specific secret."""
-    # Skip if already set
-    if os.getenv(secret_def.env_var):
-        pass  # Environment variable already set
-        return
+            print(f"❌ Failed to load environment '{env_name}': {e}", file=sys.stderr)
+            sys.exit(1)
     
-    project_id = settings.project_id
-    is_local = settings.local
+    # Load test mode config if specified
+    if test_mode:
+        try:
+            test_config = get_test_mode_config(test_mode)
+            logger.debug(f"Loaded test mode config for '{test_mode}'")
+        except Exception as e:
+            print(f"❌ Failed to load test mode '{test_mode}': {e}", file=sys.stderr)
+            sys.exit(1)
     
-    # Priority 1: project_id always takes precedence (Secret Manager)
-    if project_id:
-        value = _get_secret_from_manager(project_id, secret_def.name)
-        if not value:
-            raise RuntimeError(f"Secret '{secret_def.name}' not found in Secret Manager for project '{project_id}'")
-        os.environ[secret_def.env_var] = value
-        pass  # Loaded secret from Secret Manager
-        return
-    
-    # Priority 2: local default (only if local: true AND local_default exists)
-    if is_local:
-        if not secret_def.local_default:
-            raise RuntimeError(
-                f"Secret '{secret_def.name}' requires local_default in secrets manifest when no project_id is specified."
-            )
-        value = _expand_local_default(secret_def.local_default, config_env)
-        os.environ[secret_def.env_var] = value
-        pass  # Set secret from local default
-        return
-    
-    # No valid configuration - always fail
-    raise RuntimeError(
-        f"Secret '{secret_def.name}' requires either project_id for Secret Manager "
-        f"or local: true with local_default in secrets manifest."
-    )
-
-
-def _is_secret_required(secret, settings: Dict[str, Any]) -> bool:
-    """Check if a secret is required based on current settings."""
-    if not secret.required_when:
-        return True
-        
-    for key, expected_value in secret.required_when.items():
-        setting_value = getattr(settings, key, None)
-        if setting_value != expected_value:
-            return False
-            
-    return True
-
-
-# Removed _generate_ephemeral_secret_value - now using local_override approach
-
-
-def _get_secret_from_manager(project_id: str, secret_name: str) -> Optional[str]:
-    """Get secret value from Google Secret Manager."""
-    try:
-        print(f"🔍 Attempting to import google.cloud.secretmanager...")
-        from google.cloud import secretmanager
-        print(f"✅ Import successful")
-        
-        print(f"🔍 Creating SecretManagerServiceClient...")
-        client = secretmanager.SecretManagerServiceClient()
-        print(f"✅ Client created successfully")
-        
-        secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-        print(f"🔍 Accessing secret path: {secret_path}")
-        
-        response = client.access_secret_version(request={"name": secret_path})
-        print(f"✅ Secret access successful")
-        
-        secret_value = response.payload.data.decode("UTF-8")
-        print(f"✅ Secret decoded successfully (length: {len(secret_value)})")
-        return secret_value
-        
-    except ImportError as e:
-        print(f"❌ ImportError - Google Cloud Secret Manager library not available: {e}")
-        return None
-    except Exception as e:
-        print(f"❌ Failed to retrieve secret '{secret_name}' from Secret Manager: {e}")
-        print(f"❌ Exception type: {type(e).__name__}")
-        raise RuntimeError(f"Secret Manager access failed: {e}")
-
-
-def _expand_local_default(local_default: str, config_env: str) -> str:
-    """Expand placeholders in local_default string.
-    
-    Supported placeholders:
-    - {env}: config environment name
-    - {app-id}: application ID from app.yaml
-    """
-    app_id = _get_app_id()
-    expanded = local_default.replace('{env}', config_env)
-    expanded = expanded.replace('{app-id}', app_id)
-    return expanded
-
-
-def _get_app_config() -> dict:
-    """Get full app configuration from app.yaml."""
-    try:
-        import yaml
-        from pathlib import Path
-        
-        app_yaml_path = Path.cwd() / 'config' / 'app.yaml'
-        if not app_yaml_path.exists():
-            # Fallback to default config
-            return {'id': 'multi-eden-app'}
-            
-        with open(app_yaml_path, 'r') as f:
-            app_config = yaml.safe_load(f)
-            
-        return app_config or {}
-        
-    except Exception:
-        # Fallback on any error
-        return {'id': 'multi-eden-app'}
-
-
-def _get_app_id() -> str:
-    """Get application ID from app.yaml."""
+    # Step 3: Process environment variables from manifest
     app_config = _get_app_config()
-    return app_config.get('id', 'multi-eden-app')
+    
+    for env_var in env_vars_manifest:
+        # Check conditions first
+        if env_var.condition:
+            condition_met = True
+            for condition_key, condition_value in env_var.condition.items():
+                # Check condition in test config first, then env settings
+                actual_value = None
+                if condition_key in test_config:
+                    actual_value = test_config[condition_key]
+                elif env_settings and hasattr(env_settings, condition_key):
+                    actual_value = getattr(env_settings, condition_key)
+                
+                if actual_value != condition_value:
+                    condition_met = False
+                    break
+            
+            if not condition_met:
+                logger.debug(f"Skipping {env_var.name} - condition not met: {env_var.condition}")
+                continue
+        
+        # Process the environment variable based on its source
+        if env_var.source.startswith('env-config:'):
+            setting_key = env_var.source.split(':', 1)[1]
+            
+            # Check test config first (overlay), then env settings
+            value = None
+            source = None
+            
+            if setting_key in test_config:
+                value = test_config[setting_key]
+                source = 'test-config'
+            elif env_settings and hasattr(env_settings, setting_key):
+                value = getattr(env_settings, setting_key)
+                source = 'env-config'
+            
+            if value is not None:
+                # Convert boolean to lowercase string
+                if isinstance(value, bool):
+                    value = str(value).lower()
+                _stage_env_var(staged_env_vars, env_vars_info, env_var.name, str(value), source)
+                
+        elif env_var.source == 'app:id':
+            if app_config and 'id' in app_config:
+                _stage_env_var(staged_env_vars, env_vars_info, env_var.name, app_config['id'], 'app:id')
+                
+        elif env_var.source == 'derived' and env_var.method == 'derive_api_url':
+            # Derive API URL for out-of-process API
+            project_id = staged_env_vars.get('PROJECT_ID')
+            app_id = staged_env_vars.get('APP_ID', 'multi-eden-app')
+            if project_id and app_id:
+                api_url = f"https://{app_id}-api-djxpmqqvhq-uc.a.run.app"
+                _stage_env_var(staged_env_vars, env_vars_info, env_var.name, api_url, 'derived')
+    
+    # Step 4: Add test-specific environment variables not in manifest
+    if test_mode:
+        # These are test framework specific and not in the general manifest
+        if 'api_in_memory' in test_config:
+            _stage_env_var(staged_env_vars, env_vars_info, 'TEST_API_IN_MEMORY', str(test_config['api_in_memory']).lower(), 'test-config')
+        if 'omit_integration' in test_config:
+            _stage_env_var(staged_env_vars, env_vars_info, 'TEST_OMIT_INTEGRATION', str(test_config['omit_integration']).lower(), 'test-config')
+    
+    # Step 5: Validate minimum requirements
+    required_vars = ['STUB_AI', 'STUB_DB', 'CUSTOM_AUTH_ENABLED']
+    missing_vars = [var for var in required_vars if var not in staged_env_vars]
+    
+    if missing_vars:
+        if env_name:
+            print(f"❌ Environment '{env_name}' incomplete. Missing: {', '.join(missing_vars)}", file=sys.stderr)
+        else:
+            print(f"❌ Test mode '{test_mode}' incomplete. Missing: {', '.join(missing_vars)}. Specify --config-env.", file=sys.stderr)
+        sys.exit(1)
+    
+    # Step 6: Apply all staged environment variables to os.environ
+    for var_name, var_value in staged_env_vars.items():
+        os.environ[var_name] = var_value
+    
+    # Step 7: Set up secrets (create Settings object from staged vars)
+    if not env_settings:
+        from .settings import Settings
+        env_settings = Settings()
+        
+    # Update settings object with staged values for secrets setup
+    env_settings.stub_ai = staged_env_vars.get('STUB_AI', 'true').lower() == 'true'
+    env_settings.stub_db = staged_env_vars.get('STUB_DB', 'true').lower() == 'true'
+    env_settings.custom_auth_enabled = staged_env_vars.get('CUSTOM_AUTH_ENABLED', 'true').lower() == 'true'
+    env_settings.api_in_memory = staged_env_vars.get('TEST_API_IN_MEMORY', 'true').lower() == 'true'
+    env_settings.local = True  # Default for test scenarios
+    env_settings.project_id = staged_env_vars.get('PROJECT_ID')
+    env_settings.app_id = staged_env_vars.get('APP_ID')
+    
+    try:
+        setup_secrets_environment(env_settings)
+    except Exception as e:
+        print(f"❌ Failed to set up secrets: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    # Step 8: Display build environment variables (always shown)
+    _display_environment_variables(env_vars_info)
+    if not staged_env_vars.get('PROJECT_ID'):
+        print(f"   ✅ No project ID - using local configuration", file=sys.stderr)
+
+
+def _stage_env_var(staged_env_vars: Dict[str, str], env_vars_info: list, 
+                   env_name: str, value: str, source: str) -> None:
+    """Stage environment variable for later application."""
+    staged_env_vars[env_name] = value
+    env_vars_info.append((env_name, value, source))
+
+
+def _display_environment_variables(env_vars_info: list) -> None:
+    """Display environment variables table."""
+    if not env_vars_info:
+        return
+        
+    print("\n" + "=" * 74, file=sys.stderr)
+    print("🔧 ENVIRONMENT VARIABLES", file=sys.stderr)
+    print("=" * 74, file=sys.stderr)
+    print(f"{'VARIABLE':<21} {'VALUE':<21} {'SOURCE':<26}", file=sys.stderr)
+    print("-" * 74, file=sys.stderr)
+    
+    for env_var, value, source in env_vars_info:
+        # Truncate long values for display (max 21 chars)
+        display_value = value if len(value) <= 21 else value[:18] + "..."
+        print(f"{env_var:<21} {display_value:<21} {source:<26}", file=sys.stderr)
+    
+    print("=" * 74, file=sys.stderr)
+
+
+def _get_app_config() -> Optional[Dict[str, Any]]:
+    """Get application configuration from app.yaml."""
+    from pathlib import Path
+    import yaml
+    
+    app_yaml_path = Path.cwd() / "config" / "app.yaml"
+    if not app_yaml_path.exists():
+        return None
+    
+    try:
+        with open(app_yaml_path, 'r') as f:
+            return yaml.safe_load(f)
+    except Exception:
+        return None
