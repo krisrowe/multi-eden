@@ -200,16 +200,6 @@ def build(ctx, force=False, tag=None):
         # Validate git state
         validate_git_state()
         
-        # Load environment configuration for build
-        try:
-            from multi_eden.build.config.loading import load_env
-            # Use a default environment for build operations
-            load_env("dev", env_source="hardcoded")  # Default to dev environment for builds
-            print(f"🔧 Loaded build configuration from dev environment")
-        except Exception as e:
-            print(f"❌ Failed to load build configuration: {e}")
-            raise RuntimeError(f"Build configuration failed: {e}")
-        
         # Get build configuration
         project_id, image_name = get_build_config()
         print(f"✅ Using project: {project_id}")

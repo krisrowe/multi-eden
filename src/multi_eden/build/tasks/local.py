@@ -12,6 +12,9 @@ import socket
 from pathlib import Path
 from invoke import task
 
+# Default environment for local development tasks
+DEFAULT_ENV = "local"
+
 
 def get_repo_root():
     """Get the current working directory (project root where user runs tasks)."""
@@ -207,10 +210,10 @@ def check_port_available(port, check_listening=False, max_retries=10, retry_inte
 
 @task(help={
     'port': 'Port to run the API server on (default: 8000)',
-    'env': 'Configuration environment to use (default: local)',
+    'env': f'Configuration environment to use (default: {DEFAULT_ENV})',
     'background': 'Run in background (default: True)'
 })
-def api_start(ctx, port=None, env="local", background=True):
+def api_start(ctx, port=None, env=DEFAULT_ENV, background=True):
     """Start the API server."""
     try:
         # Get repository root and load API configuration for process detection
@@ -282,7 +285,7 @@ def api_start(ctx, port=None, env="local", background=True):
         # Load environment configuration
         try:
             from multi_eden.build.config.loading import load_env
-            env_source = "--env" if env != "local" else "task default"
+            env_source = "--env" if env != DEFAULT_ENV else "task default"
             load_env(env, env_source=env_source)
             print(f"🔧 Loaded configuration from {env} environment")
         except Exception as e:
@@ -453,7 +456,7 @@ def api_status(ctx):
 
 
 @task
-def api_restart(ctx, port=None, env="local"):
+def api_restart(ctx, port=None, env=DEFAULT_ENV):
     """Restart the API server."""
     try:
         print("🔄 Restarting API server...")

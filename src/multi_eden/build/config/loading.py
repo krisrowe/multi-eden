@@ -273,8 +273,7 @@ def _show_configuration_source(env_name: Optional[str], test_mode: Optional[str]
             print(f"  └─ Test Paths: {paths_str}", file=sys.stderr)
         
         # Show count of settings from test mode
-        total_settings = len(env_vars_manifest)
-        print(f"  └─ {CYAN}{suite_settings_count} of {total_settings}{RESET} settings from suite", file=sys.stderr)
+        print(f"  └─ {CYAN}{suite_settings_count}{RESET} settings from suite", file=sys.stderr)
         print("", file=sys.stderr)  # Empty line between sections
     
     # Show Config Environment section
@@ -284,8 +283,7 @@ def _show_configuration_source(env_name: Optional[str], test_mode: Optional[str]
         print(f"  └─ Source: environments.yaml", file=sys.stderr)
         
         # Show count of settings from config environment
-        total_settings = len(env_vars_manifest)
-        print(f"  └─ {CYAN}{config_settings_count} of {total_settings}{RESET} settings from config", file=sys.stderr)
+        print(f"  └─ {CYAN}{config_settings_count}{RESET} settings from config", file=sys.stderr)
         
         # Show helpful tip when config environment is unused
         if config_settings_count == 0:
