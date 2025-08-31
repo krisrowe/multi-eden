@@ -262,38 +262,7 @@ def list_settings() -> List[Dict[str, Any]]:
     return settings_info
 
 
-def print_settings_table(file=None):
-    """
-    Print a formatted table of settings to stderr (or specified file).
-    
-    Args:
-        file: File object to write to (defaults to sys.stderr)
-    """
-    if file is None:
-        file = sys.stderr
-    
-    settings_info = list_settings()
-    
-    print("\n" + "=" * 85, file=file)
-    print("🔧 RUNTIME SETTINGS", file=file)
-    print("=" * 85, file=file)
-    print(f"{'SETTING':<25} {'VALUE':<34} {'SOURCE':<19}", file=file)
-    print("-" * 85, file=file)
-    
-    for setting in settings_info:
-        # Truncate long values for display
-        display_value = str(setting['value']) if setting['value'] is not None else "<NOT SET>"
-        if len(display_value) > 34:
-            display_value = display_value[:31] + "..."
-        
-        # Truncate long source for display
-        display_source = setting['source']
-        if len(display_source) > 19:
-            display_source = display_source[:16] + "..."
-        
-        print(f"{setting['name']:<25} {display_value:<34} {display_source:<19}", file=file)
-    
-    print("=" * 85, file=file)
+
 
 
 def clear_cache():
@@ -441,11 +410,11 @@ def print_settings():
     YELLOW = '\033[93m'  # Bright yellow for secrets (highly visible)
     RESET = '\033[0m'
     
-    print("="*68, file=sys.stderr)
+    print("="*54, file=sys.stderr)
     print("📋 Runtime Configuration Settings", file=sys.stderr)
-    print("="*68, file=sys.stderr)
-    print(f"{'Setting Name':<25} {'Value':<28} {'Source':<15}", file=sys.stderr)
-    print("-"*68, file=sys.stderr)
+    print("="*54, file=sys.stderr)
+    print(f"{'Setting Name':<21} {'Value':<18} {'Source':<15}", file=sys.stderr)
+    print("-"*54, file=sys.stderr)
     
     # Get all settings from manifest
     manifest_settings = _load_settings_manifest()
@@ -475,19 +444,34 @@ def print_settings():
         else:
             # Use softer gray color for unavailable settings
             display_value = f"{GRAY}(not available){RESET}"
+        
+        # Truncate long source names to fit column
+        display_source = source
+        if len(display_source) > 15:
+            display_source = display_source[:12] + "..."
             
         # Handle formatting with color codes - they don't count toward visible width
         if GRAY in display_value or YELLOW in display_value:
             # For colored text, calculate visible length and add manual padding
             visible_text = display_value.replace(GRAY, '').replace(YELLOW, '').replace(RESET, '')
-            padding_needed = 28 - len(visible_text)
+            # Truncate if too long
+            if len(visible_text) > 18:
+                visible_text = visible_text[:15] + "..."
+                # Rebuild with colors
+                if GRAY in display_value:
+                    display_value = f"{GRAY}{visible_text}{RESET}"
+                elif YELLOW in display_value:
+                    display_value = f"{YELLOW}{visible_text}{RESET}"
+            padding_needed = 18 - len(visible_text)
             padded_value = display_value + ' ' * padding_needed
-            print(f"{name:<25} {padded_value} {source:<15}", file=sys.stderr)
+            print(f"{name:<21} {padded_value} {display_source:<15}", file=sys.stderr)
         else:
-            # Normal formatting for non-colored text
-            print(f"{name:<25} {display_value:<28} {source:<15}", file=sys.stderr)
+            # Normal formatting for non-colored text - truncate if needed
+            if len(display_value) > 18:
+                display_value = display_value[:15] + "..."
+            print(f"{name:<21} {display_value:<18} {display_source:<15}", file=sys.stderr)
     
-    print("="*68, file=sys.stderr)
+    print("="*54, file=sys.stderr)
     print("", file=sys.stderr)
 
 
@@ -497,7 +481,7 @@ def print_runtime_configuration():
     This function only uses runtime config (run package) and can be called
     from anywhere including API servers, CLI tools, etc.
     """
-    print_settings_table()
+    print_settings()
     print_stub_usage_table()
 
 
