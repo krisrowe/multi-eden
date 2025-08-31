@@ -113,8 +113,8 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
             
             # Show runtime configuration for --show-config
             if show_config:
-                from ...run.config import print_runtime_config
-                print_runtime_config()
+                from ...run.config import print_runtime_configuration
+                print_runtime_configuration()
                 print("📊 Configuration display complete. Exiting without running tests.")
                 return None
                 
@@ -183,8 +183,8 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     
     # Show runtime configuration that tests will use (unless quiet)
     if not quiet:
-        from ...run.config import print_runtime_config
-        print_runtime_config()
+        from ...run.config import print_runtime_configuration
+        print_runtime_configuration()
     
     # Run pytest directly in the same process (not subprocess)
     # This ensures environment variables set by load_env() are available

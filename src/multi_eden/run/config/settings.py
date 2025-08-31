@@ -491,6 +491,16 @@ def print_settings():
     print("", file=sys.stderr)
 
 
+def print_runtime_configuration():
+    """Print complete runtime configuration: settings table + stub usage table.
+    
+    This function only uses runtime config (run package) and can be called
+    from anywhere including API servers, CLI tools, etc.
+    """
+    print_settings_table()
+    print_stub_usage_table()
+
+
 def get_settings_with_stub_indicators() -> List[SettingDefinition]:
     """Get all settings that have stub-indicator configuration."""
     manifest = _load_settings_manifest()
