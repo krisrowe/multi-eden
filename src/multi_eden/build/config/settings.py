@@ -140,31 +140,7 @@ class Settings:
         except Exception as e:
             raise RuntimeError(f"Failed to load app environment config from {config_path}: {e}")
     
-    def derive_api_url(self, task_context: Optional[Dict[str, Any]] = None) -> str:
-        """Derive API URL based on settings and task context."""
-        
-        # 1. Environment variable override (highest priority)
-        if env_var := os.getenv('API_TESTING_URL'):
-            return env_var
-        
-        # 2. Local execution (local=true) - use localhost with optional port
-        if self.local:
-            if self.port:
-                return f"http://localhost:{self.port}"
-            else:
-                return "http://localhost"  # No port = use HTTP default (80)
-        
-        # 3. Cloud environment (project_id present) - get actual Cloud Run URL via GCP API
-        if self.project_id:
-            if not self.app_id:
-                raise RuntimeError("Cannot derive Cloud Run URL: app_id is required")
-            from multi_eden.internal.gcp import get_cloud_run_service_url
-            service_name = f"{self.app_id}-api"
-            return get_cloud_run_service_url(self.project_id, service_name)
-        
-        # 4. No valid configuration - cannot derive URL
-        raise RuntimeError("Cannot derive API URL: neither local=true nor project_id specified")
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for environment setup."""
         return {
