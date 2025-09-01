@@ -39,8 +39,6 @@ class Settings:
     # Security settings
     local: bool = False  # Whether to allow local defaults for secrets
     
-
-    
     @classmethod
     def from_config_env(cls, config_env: str, app_config_path: str = "config/environments.yaml") -> 'Settings':
         """Load unified settings by merging SDK defaults with app-specific overrides."""
@@ -71,8 +69,8 @@ class Settings:
         env_config = merged_environments[config_env]
         
         # Create settings from merged config - NO DEFAULTS, EXPLICIT REQUIRED
-        if 'api_in_memory' not in env_config:
-            raise ValueError(f"Missing required setting 'api_in_memory' in environment '{config_env}'")
+        # test_api_in_memory is optional (only needed for local/test environments)
+        test_api_in_memory = env_config.get('test_api_in_memory', False)  # Default to False for cloud envs
         if 'custom_auth_enabled' not in env_config:
             raise ValueError(f"Missing required setting 'custom_auth_enabled' in environment '{config_env}'")
         if 'stub_ai' not in env_config:
@@ -88,7 +86,7 @@ class Settings:
         settings = cls(
             app_id=app_id,
             project_id=env_config.get('project_id'),  # Optional for local environments
-            api_in_memory=env_config['api_in_memory'],
+            test_api_in_memory=test_api_in_memory,
             custom_auth_enabled=env_config['custom_auth_enabled'],
             stub_ai=env_config['stub_ai'],
             stub_db=env_config['stub_db'],
@@ -149,27 +147,29 @@ class Settings:
         if env_var := os.getenv('API_TESTING_URL'):
             return env_var
         
-        # 2. Local execution (local flag enabled) - use localhost even if project_id present
+        # 2. Local execution (local=true) - use localhost with optional port
         if self.local:
             if self.port:
                 return f"http://localhost:{self.port}"
             else:
-                return "http://localhost"  # No port = use HTTP default
+                return "http://localhost"  # No port = use HTTP default (80)
         
-        # 4. Cloud environment (project_id present) - get actual Cloud Run URL
+        # 3. Cloud environment (project_id present) - get actual Cloud Run URL via GCP API
         if self.project_id:
+            if not self.app_id:
+                raise RuntimeError("Cannot derive Cloud Run URL: app_id is required")
             from multi_eden.internal.gcp import get_cloud_run_service_url
             service_name = f"{self.app_id}-api"
             return get_cloud_run_service_url(self.project_id, service_name)
         
-        # 5. No configuration available
-        raise RuntimeError("Cannot derive API URL: no project_id for cloud and local execution not enabled")
+        # 4. No valid configuration - cannot derive URL
+        raise RuntimeError("Cannot derive API URL: neither local=true nor project_id specified")
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for environment setup."""
         return {
             'project_id': self.project_id,
-            'api_in_memory': self.api_in_memory,
+            'test_api_in_memory': self.test_api_in_memory,
             'custom_auth_enabled': self.custom_auth_enabled,
             'stub_ai': self.stub_ai,
             'stub_db': self.stub_db,

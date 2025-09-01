@@ -156,7 +156,6 @@ environments:
   # Development environment with real cloud resources
   dev:
     project_id: {dev_project_id}
-    api_in_memory: false
     custom_auth_enabled: true
     stub_ai: false
     stub_db: false
@@ -164,7 +163,6 @@ environments:
   # Production environment (inherits from dev)
   prod:
     project_id: {dev_project_id}  # TODO: Update with prod project ID
-    api_in_memory: false
     custom_auth_enabled: true
     stub_ai: false
     stub_db: false

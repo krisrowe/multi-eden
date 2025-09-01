@@ -5,7 +5,6 @@
 environments:
   # Local testing - out-of-process API (port determined by task: server=8000, docker=8001)
   local:
-    api_in_memory: false
     custom_auth_enabled: true
     stub_ai: true
     stub_db: true
@@ -14,26 +13,16 @@ environments:
 
   # Local Docker - out-of-process API in Docker container on port 8001
   local-docker:
-    api_in_memory: false
     custom_auth_enabled: true
     stub_ai: true
     stub_db: true
     local: true        # Allow local override secrets
     port: 8001         # Docker container port
     
-  # Local Docker with AI - Docker container + real AI on port 8001
-  local-docker-ai:
-    api_in_memory: false
-    custom_auth_enabled: true
-    stub_ai: false     # ai_provider: "real"
-    stub_db: true      # data_provider: "tinydb"
-    local: true        # Allow local override secrets
-    port: 8001         # Docker container port
     
   # Cloud environment templates (project_id must be set by app config)
   # Development cloud environment
   dev:
-    api_in_memory: false
     custom_auth_enabled: true
     stub_ai: false     # ai_provider: "real"
     stub_db: false     # data_provider: "firestore"
@@ -41,7 +30,6 @@ environments:
     
   # Production cloud environment
   prod:
-    api_in_memory: false
     custom_auth_enabled: true
     stub_ai: false     # ai_provider: "real"
     stub_db: false     # data_provider: "firestore"

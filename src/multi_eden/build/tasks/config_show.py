@@ -42,11 +42,11 @@ def show_config(ctx, env="unit-testing"):
         # Add diagnostic information to stderr
         print(f"✅ Configuration loaded successfully", file=sys.stderr)
         print(f"📍 Project ID: {settings.project_id or 'None (local)'}", file=sys.stderr)
-        print(f"🔧 API Mode: {'In-memory' if settings.api_in_memory else 'Out-of-process'}", file=sys.stderr)
+        print(f"🔧 API Mode: {'In-memory' if settings.test_api_in_memory else 'Out-of-process'}", file=sys.stderr)
         print(f"🤖 AI: {'Stubbed' if settings.stub_ai else 'Real'}", file=sys.stderr)
         print(f"💾 DB: {'Stubbed' if settings.stub_db else 'Real'}", file=sys.stderr)
         
-        if not settings.api_in_memory:
+        if not settings.test_api_in_memory:
             api_url = settings.derive_api_url()
             print(f"🌐 API URL: {api_url}", file=sys.stderr)
         
@@ -77,7 +77,7 @@ def list_environments(ctx):
         for env_name in sorted(sdk_envs.keys()):
             env_config = sdk_envs[env_name]
             project_id = env_config.get('project_id', 'None')
-            api_mode = 'in-memory' if env_config.get('api_in_memory') else 'out-of-process'
+            api_mode = 'in-memory' if env_config.get('test_api_in_memory') else 'out-of-process'
             print(f"   • {env_name:15} (project: {project_id:12}, api: {api_mode})", file=sys.stderr)
         
         print("", file=sys.stderr)
@@ -89,7 +89,7 @@ def list_environments(ctx):
             for env_name in sorted(app_envs.keys()):
                 env_config = app_envs[env_name]
                 project_id = env_config.get('project_id', 'None')
-                api_mode = 'in-memory' if env_config.get('api_in_memory') else 'out-of-process'
+                api_mode = 'in-memory' if env_config.get('test_api_in_memory') else 'out-of-process'
                 print(f"   • {env_name:15} (project: {project_id:12}, api: {api_mode})", file=sys.stderr)
         else:
             print("🏢 App Overrides: None found (config/env/settings.yaml missing)", file=sys.stderr)

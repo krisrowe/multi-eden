@@ -34,7 +34,7 @@ def setup_secrets_environment(settings: Any) -> None:
         logger.debug(f"Secret {secret_def.name} is required")
         
         # Skip secrets without local default when API is out-of-process
-        if not secret_def.local_default and not settings.api_in_memory:
+        if not secret_def.local_default and not settings.test_api_in_memory:
             logger.debug(f"Skipping secret {secret_def.name} - no local default and API is out-of-process")
             continue
             

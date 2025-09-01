@@ -151,13 +151,31 @@ def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None,
             if app_config and 'id' in app_config:
                 _stage_env_var(staged_env_vars, env_vars_info, env_var.name, app_config['id'], 'app:id')
                 
-        elif env_var.source == 'derived' and env_var.method == 'derive_api_url':
-            # Derive API URL for out-of-process API
-            project_id = staged_env_vars.get('PROJECT_ID')
-            app_id = staged_env_vars.get('APP_ID', 'multi-eden-app')
-            if project_id and app_id:
-                api_url = f"https://{app_id}-api-djxpmqqvhq-uc.a.run.app"
-                _stage_env_var(staged_env_vars, env_vars_info, env_var.name, api_url, 'derived')
+        elif env_var.source == 'derived':
+            # Generic derived method invocation
+            if not env_var.method:
+                logger.error(f"Derived variable {env_var.name} missing method")
+                continue
+                
+            # Validate method name (simple Python function name)
+            import re
+            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', env_var.method):
+                logger.error(f"Invalid method name: {env_var.method}")
+                continue
+                
+            # Check if method exists in this module
+            if not hasattr(sys.modules[__name__], env_var.method):
+                logger.error(f"Method {env_var.method} not found in {__name__}")
+                continue
+                
+            # Call the method with available context
+            method_func = getattr(sys.modules[__name__], env_var.method)
+            try:
+                result = method_func(staged_env_vars, env_settings)
+                if result:
+                    _stage_env_var(staged_env_vars, env_vars_info, env_var.name, result, 'derived')
+            except Exception as e:
+                logger.error(f"Failed to derive {env_var.name} using {env_var.method}: {e}")
     
     # Step 4: All environment variables now processed via manifest loop above
     
@@ -258,11 +276,11 @@ def _display_comprehensive_environment_variables(env_vars_manifest: list, staged
     """
     import sys
     
-    print("\n" + "=" * 74, file=sys.stderr)
+    print("\n" + "=" * 76, file=sys.stderr)
     print("🔧 ENVIRONMENT VARIABLES", file=sys.stderr)
-    print("=" * 74, file=sys.stderr)
-    print(f"{'VARIABLE':<24} {'VALUE':<21} {'SOURCE':<25}", file=sys.stderr)
-    print("-" * 74, file=sys.stderr)
+    print("=" * 76, file=sys.stderr)
+    print(f"{'VARIABLE':<24} {'VALUE':<23} {'SOURCE':<25}", file=sys.stderr)
+    print("-" * 76, file=sys.stderr)
     
     processed_count = 0
     missing_count = 0
@@ -299,7 +317,7 @@ def _display_comprehensive_environment_variables(env_vars_manifest: list, staged
             variable_name = f"✅ {env_var.name}"
             value = staged_env_vars[env_var.name]
             # Truncate value to fit in column
-            display_value = value if len(value) <= 21 else value[:18] + "..."
+            display_value = value if len(value) <= 23 else value[:20] + "..."
             
             # Determine source
             if env_var.source.startswith('env-config:'):
@@ -351,11 +369,11 @@ def _display_comprehensive_environment_variables(env_vars_manifest: list, staged
             return text + ' ' * max(0, padding)
         
         variable_part = f"{variable_name:<24}"
-        value_part = pad_to_width(display_value, 21)
+        value_part = pad_to_width(display_value, 23)
         print(f"{variable_part} {value_part} {status}", file=sys.stderr)
     
     # Footer with validation summary
-    print("-" * 74, file=sys.stderr)
+    print("-" * 76, file=sys.stderr)
     total_shown = processed_count + missing_count + skipped_count
     
     if missing_count > 0:
@@ -371,7 +389,7 @@ def _display_comprehensive_environment_variables(env_vars_manifest: list, staged
     if missing_count > 0:
         print(f"   └─ {missing_count} missing (validation failed)", file=sys.stderr)
     
-    print("=" * 74, file=sys.stderr)
+    print("=" * 76, file=sys.stderr)
     
     return missing_count
 
@@ -440,3 +458,33 @@ def _show_configuration_source(env_name: Optional[str], test_mode: Optional[str]
         print(f"Config Environment: {GRAY}(none){RESET}", file=sys.stderr)
     
     print("="*50, file=sys.stderr)
+
+
+
+def derive_api_url(staged_env_vars, env_settings):
+    """Derive API URL based on available settings and staged environment variables."""
+    
+    # 1. Environment variable override (highest priority)
+    if env_var := os.getenv("API_TESTING_URL"):
+        return env_var
+    
+    # 2. Local execution (local=true) - use localhost with optional port
+    if env_settings and env_settings.local:
+        port = staged_env_vars.get("PORT")
+        if port:
+            return f"http://localhost:{port}"
+        else:
+            return "http://localhost"  # No port = use HTTP default (80)
+    
+    # 3. Cloud environment (project_id present) - get actual Cloud Run URL via GCP API
+    project_id = staged_env_vars.get("PROJECT_ID")
+    if project_id:
+        app_id = staged_env_vars.get("APP_ID")
+        if not app_id:
+            raise RuntimeError("Cannot derive Cloud Run URL: APP_ID is required")
+        from multi_eden.internal.gcp import get_cloud_run_service_url
+        service_name = f"{app_id}-api"
+        return get_cloud_run_service_url(project_id, service_name)
+    
+    # 4. No valid configuration - cannot derive URL
+    raise RuntimeError("Cannot derive API URL: neither local=true nor project_id specified")
