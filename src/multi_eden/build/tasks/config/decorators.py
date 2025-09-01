@@ -6,9 +6,11 @@ such as automatic configuration environment setup.
 """
 
 import functools
+import sys
 from typing import Optional, Callable, Any, Tuple
-from .setup import get_task_default_env
+from .setup import get_task_default_env, get_task_vars
 from pathlib import Path
+from multi_eden.build.config.loading import load_env
 
 
 def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict, 
@@ -56,17 +58,12 @@ def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict,
     # Fall back to standard lookup if no custom callback or callback failed
     if not env_name:
         env_name = get_task_default_env(task_name)
-        if not env_name:
-            raise ConfigEnvironmentRequiredError(
-                f"Task '{task_name}' requires a configuration environment. "
-                f"Please specify --config-env=<environment> or configure a default "
-                f"environment for this task."
-            )
-        selection_method = f"\033[1;33m{task_name}\033[0m task default"
+        if env_name:
+            selection_method = f"\033[1;33m{task_name}\033[0m task default"
+        # If no default env, let load_env determine if --config-env is required
     
     # Display the configuration section (only if not quiet)
     if not quiet:
-        import sys
         print("\n" + "="*50, file=sys.stderr)
         print("🔧 CONFIGURATION", file=sys.stderr)
         print("="*50, file=sys.stderr)
@@ -89,21 +86,6 @@ def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict,
             print(f"💡 Override with: --config-env=<environment>", file=sys.stderr)
         print("="*50, file=sys.stderr)
     
-    # Load the configuration environment (sets up secrets and environment variables)
-    try:
-        from multi_eden.build.config.loading import load_env
-        
-        load_env(env_name, quiet=quiet, env_source=selection_method)  # Load the environment (sets up secrets)
-        
-        # Configuration environment loaded successfully (moved to debug logging)
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.debug(f"Configuration environment '{env_name}' loaded successfully")
-    except Exception as e:
-        error_msg = f"Failed to load configuration environment '{env_name}': {e}"
-        print(f"❌ {error_msg}")
-        raise ConfigEnvironmentLoadError(error_msg)
-    
     return env_name, selection_method
 
 
@@ -117,6 +99,7 @@ def requires_config_env(func: Callable) -> Callable:
     3. Set up the configuration environment before running the task
     4. Set up debug logging if --debug flag is provided
     5. Fail early with a strong-typed exception if the environment cannot be loaded
+    6. Load specific environment variables if vars is configured in tasks.yaml
     
     Usage:
         @task
@@ -124,6 +107,7 @@ def requires_config_env(func: Callable) -> Callable:
         def my_task(ctx, config_env=None, debug=False):
             # config_env is automatically set if not provided
             # debug logging is automatically set up if debug=True
+            # specific env vars are loaded if vars is configured in tasks.yaml
             pass
     """
     
@@ -142,19 +126,56 @@ def requires_config_env(func: Callable) -> Callable:
         debug = kwargs.get('debug', False)
         if debug:
             import os
-            import sys
             os.environ['LOG_LEVEL'] = 'DEBUG'
             print("🐛 Debug logging enabled (LOG_LEVEL=DEBUG)", file=sys.stderr)
+            
+            # Bootstrap logging with debug level
+            try:
+                from multi_eden.run.config.logging import bootstrap_logging
+                bootstrap_logging()
+            except ImportError:
+                # Fallback if logging module not available
+                import logging
+                logging.basicConfig(level=logging.DEBUG)
         
-        # Use the helper method to resolve the environment (no callback)
-        resolved_env, selection_method = resolve_config_env(config_env, args, kwargs, task_name, None, quiet)
-        kwargs['config_env'] = resolved_env
+        # Check if task has vars configuration
+        vars_config = get_task_vars(task_name)
+        
+        # Special handling for test tasks - they need test_mode parameter
+        test_mode = None
+        if task_name == 'test':
+            # For invoke tasks, positional arguments are passed as keyword arguments
+            test_mode = kwargs.get('suite')
+        
+        if vars_config:
+            # Parse the comma-delimited list
+            env_var_names = [name.strip() for name in vars_config.split(',')]
+            
+            # Load environment variables for this task - let load_env determine if --config-env is required
+            try:
+                load_env(
+                    env_name=config_env,  # Pass through the original config_env (may be None)
+                    test_mode=test_mode,  # Pass test_mode for test tasks
+                    env_var_names=env_var_names,
+                    env_source=f"task {task_name} vars: {vars_config}"
+                )
+            except Exception as e:
+                print(f"❌ Failed to load environment variables for task '{task_name}': {e}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            # For tasks without vars config, use the original behavior but pass through config_env
+            # Let load_env determine if --config-env is required
+            try:
+                load_env(env_name=config_env, test_mode=test_mode, quiet=quiet, env_source="task default")
+            except Exception as e:
+                error_msg = f"Failed to load configuration environment: {e}"
+                print(f"❌ {error_msg}")
+                raise ConfigEnvironmentLoadError(error_msg)
         
         # Now run the original task
         return func(ctx, *args, **kwargs)
     
     return wrapper
-
 
 class ConfigEnvironmentRequiredError(Exception):
     """Raised when a task requires a configuration environment but none is specified."""

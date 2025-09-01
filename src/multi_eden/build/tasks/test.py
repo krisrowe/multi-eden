@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
     'show_config': 'Show detailed configuration including partial secret values',
     'quiet': 'Suppress configuration display (show only test results)'
 })
+@requires_config_env
 def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config=False, quiet=False):
     """
     Run tests for a specific suite.
@@ -54,20 +55,7 @@ def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config
             print(f"❌ Failed to load test mode '{suite}': {e}", file=sys.stderr)
             sys.exit(1)
     
-    # Use new load_env system
-    from multi_eden.build.config.loading import load_env
-    
-    try:
-        # Load environment with test mode - will validate requirements
-        env_source = "--config-env" if config_env else "(not specified)"
-        load_env(env_name=config_env, test_mode=suite, quiet=quiet, env_source=env_source)
-        print(f"✅ Configuration loaded for suite '{suite}'" + (f" with environment '{config_env}'" if config_env else ""))
-    except SystemExit:
-        # load_env already printed the error and called sys.exit(1)
-        raise
-    except Exception as e:
-        print(f"❌ Failed to load configuration: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Environment loading is handled by the @requires_config_env decorator
     
     return run_pytest(suite, config_env, verbose, test_name, show_config, test_config, quiet)
 

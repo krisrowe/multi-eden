@@ -43,6 +43,13 @@ def get_task_description(task_name: str) -> Optional[str]:
     return task_config.get('description')
 
 
+def get_task_vars(task_name: str) -> Optional[str]:
+    """Get the vars field for a specific task."""
+    defaults = get_task_defaults()
+    task_config = defaults.get(task_name, {})
+    return task_config.get('vars')
+
+
 @task(help={
     'env': 'Environment name to set up (e.g., local-docker, local-server)',
     'file': 'Path to configuration file to use',

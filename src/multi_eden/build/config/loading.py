@@ -15,6 +15,23 @@ from typing import Dict, Any, Optional
 from .test_mode import get_test_mode_config
 from .settings import load_settings
 from ..secrets_setup import setup_secrets_environment
+from ...run.config.settings import SettingValueNotFoundException
+
+
+class SecretUnavailableException(SettingValueNotFoundException):
+    """Exception raised when a required secret cannot be loaded."""
+    def __init__(self, secret_name: str, variable_name: str = None):
+        self.secret_name = secret_name
+        self.variable_name = variable_name
+        super().__init__(variable_name or secret_name, f"secret:{secret_name}", 
+                        "Secret requires either project_id for Secret Manager or a default value")
+
+# Bootstrap logging configuration
+try:
+    from ...run.config.logging import bootstrap_logging
+    bootstrap_logging()
+except ImportError:
+    pass  # Logging bootstrap not available
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +39,227 @@ logger = logging.getLogger(__name__)
 _load_env_called = False
 
 
+def stage_env_var(name: str, load: bool, staged_env_vars: list, env_vars_manifest: list, 
+                  test_config: dict, env_settings, app_config: dict, repo_root=None) -> None:
+    """Recursively stage an environment variable, handling dependencies and conditions.
+    
+    Args:
+        name: Environment variable name to stage
+        load: Whether this variable should be loaded into os.environ at the end
+        staged_env_vars: List of staged environment variable objects
+        env_vars_manifest: Full environment variables manifest
+        test_config: Test mode configuration (if available)
+        env_settings: Environment settings (if available)
+        app_config: Application configuration
+        repo_root: Repository root path
+    
+    Raises:
+        RuntimeError: If circular dependency detected or required dependency not found
+        ValueError: If condition evaluation fails or value cannot be loaded
+    """
+    # Step 1: Check if already in staged_env_vars
+    for staged_var in staged_env_vars:
+        if staged_var["name"] == name:
+            if staged_var["value"] == "***TEMP***":
+                raise RuntimeError(f"Circular dependency detected for environment variable: {name}")
+            # Update load flag if this invocation requires loading
+            if load:
+                staged_var["load"] = True
+            return
+    
+    # Step 2: Add name to staged_env_vars with temporary value
+    staged_var = {"name": name, "load": load, "value": "***TEMP***"}
+    staged_env_vars.append(staged_var)
+    
+    # Find the environment variable definition in manifest
+    env_var = None
+    for var in env_vars_manifest:
+        if var.name.upper() == name.upper():
+            env_var = var
+            break
+    
+    if not env_var:
+        raise ValueError(f"Environment variable '{name}' not found in manifest")
+    
+    # Step 3: Check conditions and recursively call stage_env_var for dependencies
+    if env_var.condition:
+        for condition_key, condition_value in env_var.condition.items():
+            # Recursively ensure the condition variable is staged
+            stage_env_var(condition_key, False, staged_env_vars, env_vars_manifest, 
+                         test_config, env_settings, app_config, repo_root)
+    
+    # Step 4: Evaluate conditions using staged_env_vars
+    if env_var.condition:
+        logger.debug(f"Evaluating conditions for {name}: {env_var.condition}")
+        condition_met = True
+        for condition_key, condition_value in env_var.condition.items():
+            logger.debug(f"Checking condition {condition_key} = {condition_value}")
+            # Find the staged value
+            staged_value = None
+            for staged in staged_env_vars:
+                if staged["name"].upper() == condition_key.upper():
+                    staged_value = staged["value"]
+                    logger.debug(f"Found staged value for {condition_key}: {staged_value}")
+                    break
+            
+            if staged_value is None:
+                logger.debug(f"No staged value found for condition variable {condition_key}")
+                condition_met = False
+                break
+            
+            logger.debug(f"Condition check: {condition_key} = {staged_value} (expected: {condition_value})")
+            if staged_value != condition_value:
+                # Handle type conversion for boolean conditions
+                if isinstance(condition_value, bool):
+                    # Convert string values to boolean for comparison
+                    if isinstance(staged_value, str):
+                        if staged_value.lower() == 'true':
+                            staged_value = True
+                        elif staged_value.lower() == 'false':
+                            staged_value = False
+                        # If it's not 'true' or 'false', keep staged_value as is
+                
+                # Now compare the converted values
+                if staged_value != condition_value:
+                    condition_met = False
+                    logger.debug(f"Condition failed: {condition_key} = {staged_value} != {condition_value}")
+                    break
+        
+        if not condition_met:
+            logger.debug(f"Conditions not met for {name}, setting value to None")
+            staged_var["value"] = None
+            return
+        else:
+            logger.debug(f"All conditions met for {name}, proceeding to load value")
+    
+    # Step 5: Process to load value from source
+    value = None
+    source = None
+    
+    if env_var.source.startswith('env-config:'):
+        setting_key = env_var.source.split(':', 1)[1]
+        
+        # Check test config first, then env settings
+        test_value = test_config.get(setting_key) if test_config else None
+        config_value = getattr(env_settings, setting_key, None) if env_settings and hasattr(env_settings, setting_key) else None
+        
+        if test_value is not None:
+            value = test_value
+            source = 'test-config'
+        elif config_value is not None:
+            value = config_value
+            source = 'env-config'
+        
+        # Use default value if no source provided one
+        if value is None and env_var.default is not None:
+            value = env_var.default
+            source = 'default'
+            
+    elif env_var.source == 'app:id':
+        if app_config and 'id' in app_config:
+            value = app_config['id']
+            source = 'app:id'
+            
+    elif env_var.source.startswith('secret:'):
+        secret_name = env_var.source.split(':', 1)[1]
+        logger.debug(f"Loading secret {secret_name} for {name}")
+        
+        # Use existing env_settings or create minimal one for secret loading
+        if not env_settings:
+            from .settings import Settings
+            env_settings = Settings()
+            logger.debug(f"Created minimal Settings object for {name}")
+        
+        logger.debug(f"Settings object has project_id: {getattr(env_settings, 'project_id', None)}")
+        
+        # Load the secret directly
+        try:
+            value = _get_secret_value(secret_name, env_settings, env_var.default, staged_env_vars)
+            source = 'secret'
+            logger.debug(f"Successfully loaded secret {secret_name} for {name}")
+        except SecretUnavailableException:
+            # Remove the staged variable before re-raising
+            staged_env_vars.remove(staged_var)
+            raise
+        except Exception as e:
+            logger.error(f"Failed to load secret {secret_name}: {e}")
+            # Remove the staged variable before throwing
+            staged_env_vars.remove(staged_var)
+            raise ValueError(f"Failed to load secret {secret_name}: {e}")
+            
+    elif env_var.source == 'derived':
+        if not env_var.method:
+            staged_env_vars.remove(staged_var)
+            raise ValueError(f"Derived variable {name} missing method")
+            
+        # Validate method name
+        import re
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', env_var.method):
+            staged_env_vars.remove(staged_var)
+            raise ValueError(f"Invalid method name: {env_var.method}")
+            
+        # Check if method exists in this module
+        if not hasattr(sys.modules[__name__], env_var.method):
+            staged_env_vars.remove(staged_var)
+            raise ValueError(f"Method {env_var.method} not found in {__name__}")
+            
+        # Call the method with available context
+        method_func = getattr(sys.modules[__name__], env_var.method)
+        try:
+            value = method_func(staged_env_vars, env_settings)
+            source = 'derived'
+        except Exception as e:
+            staged_env_vars.remove(staged_var)
+            raise ValueError(f"Failed to derive {name} using {env_var.method}: {e}")
+    
+    # Handle default value expansion for placeholders like {env:app_id}
+    if value and isinstance(value, str) and '{env:' in value:
+        value = _expand_env_placeholders(value, staged_env_vars)
+    
+    # Step 6: Update final value in staged_env_vars
+    if value is not None:
+        # Convert boolean to lowercase string
+        if isinstance(value, bool):
+            value = str(value).lower()
+        staged_var["value"] = str(value)
+    else:
+        # Remove the staged variable if no value could be loaded
+        staged_env_vars.remove(staged_var)
+        raise ValueError(f"Environment variable '{name}' could not be loaded from any source and has no default")
+
+
+def _expand_env_placeholders(value: str, staged_env_vars: list) -> str:
+    """Expand placeholders like {env:app_id} in default values.
+    
+    Args:
+        value: String containing placeholders
+        staged_env_vars: List of staged environment variables
+        
+    Returns:
+        String with placeholders expanded
+        
+    Raises:
+        ValueError: If a placeholder references a variable not in staged_env_vars
+    """
+    import re
+    
+    def replace_placeholder(match):
+        placeholder = match.group(1)  # e.g., "env:app_id"
+        if placeholder.startswith('env:'):
+            var_name = placeholder[4:]  # e.g., "app_id"
+            # Find the staged variable
+            for staged in staged_env_vars:
+                if staged["name"] == var_name.upper():
+                    return staged["value"]
+            raise ValueError(f"Placeholder {{env:{var_name}}} references undefined variable {var_name.upper()}")
+        return match.group(0)  # Return unchanged if not env: placeholder
+    
+    return re.sub(r'\{([^}]+)\}', replace_placeholder, value)
+
+
 def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None, 
-             repo_root=None, quiet: bool = False, env_source: str = "unknown") -> None:
+             repo_root=None, quiet: bool = False, env_source: str = "unknown",
+             env_var_names: Optional[list] = None) -> None:
     """Load configuration and set up all environment variables for build tasks.
     
     This is the single point of configuration loading. It stages environment variables
@@ -36,6 +272,9 @@ def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None,
         repo_root: Repository root path (unused, kept for compatibility)
         quiet: If True, suppress environment variable display output
         env_source: How env_name was determined (e.g., '--config-env', 'task default')
+        env_var_names: Optional list of environment variable names to load. If provided,
+                      only these variables will be loaded from environment_variables.yaml.
+                      All specified names must exist in the manifest.
         
     Raises:
         RuntimeError: If load_env has already been called
@@ -50,10 +289,16 @@ def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None,
     
     # Step 1: Load environment variables manifest
     from .env_vars_manifest import load_env_vars_manifest
-    env_vars_manifest = load_env_vars_manifest()
+    full_env_vars_manifest = load_env_vars_manifest()
+    
+    # Step 1.5: Resolve groups and filter environment variables if specified
+    if env_var_names:
+        env_vars_manifest = _resolve_and_filter_env_vars(full_env_vars_manifest, env_var_names)
+    else:
+        env_vars_manifest = full_env_vars_manifest
     
     # Step 2: Stage environment variables from environment config and test mode
-    staged_env_vars = {}
+    staged_env_vars = []
     env_vars_info = []
     env_settings = None
     test_config = {}
@@ -84,98 +329,69 @@ def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None,
     config_settings_count = 0
     
     for env_var in env_vars_manifest:
+        # Skip if already set in environment
+        if os.getenv(env_var.name):
+            staged_env_vars.append({
+                "name": env_var.name,
+                "load": True,
+                "value": os.getenv(env_var.name)
+            })
+            env_vars_info.append((env_var.name, os.getenv(env_var.name), 'environment'))
+            continue
+            
         # Skip TEST_* variables when not in test mode
         if env_var.name.startswith('TEST_') and not test_mode:
             logger.debug(f"Skipping {env_var.name} - not in test mode")
             continue
-            
-        # Check explicit conditions
-        if env_var.condition:
-            condition_met = True
-            for condition_key, condition_value in env_var.condition.items():
-                # Check condition in test config first, then env settings
-                actual_value = None
-                if condition_key in test_config:
-                    actual_value = test_config[condition_key]
-                elif env_settings and hasattr(env_settings, condition_key):
-                    actual_value = getattr(env_settings, condition_key)
-                
-                if actual_value != condition_value:
-                    condition_met = False
-                    break
-            
-            if not condition_met:
-                logger.debug(f"Skipping {env_var.name} - condition not met: {env_var.condition}")
-                continue
         
-        # Process the environment variable based on its source
-        if env_var.source.startswith('env-config:'):
-            setting_key = env_var.source.split(':', 1)[1]
-            
-            # Check test config first (overlay), then env settings
-            value = None
-            source = None
-            
-            # Check both sources to detect overrides
-            test_value = test_config.get(setting_key) if test_config else None
-            config_value = getattr(env_settings, setting_key, None) if env_settings and hasattr(env_settings, setting_key) else None
-            
-            # Determine final value and source description
-            if test_value is not None:
-                value = test_value
-                if config_value is not None:
-                    source = 'test-config (\033[2;9menv-config\033[0m)'
+        # Use the new recursive stage_env_var function
+        try:
+            stage_env_var(env_var.name, True, staged_env_vars, full_env_vars_manifest, 
+                         test_config, env_settings, app_config, repo_root)
+        except SecretUnavailableException as e:
+            print(f"❌ Secret '{e.secret_name}' is not available.", file=sys.stderr)
+            print("\nTo resolve this, you can:", file=sys.stderr)
+            print(f"  • Set PROJECT_ID environment variable to load from Google Secret Manager", file=sys.stderr)
+            print(f"  • Use --config-env <environment> to load from environment config with project_id", file=sys.stderr)
+            print(f"  • Add a 'default' value to the variable in environment_variables.yaml", file=sys.stderr)
+            print(f"  • Set the {e.variable_name or e.secret_name} environment variable directly", file=sys.stderr)
+            sys.exit(1)
+        
+        # Find the staged variable to get source info for display
+        staged_var = None
+        for staged in staged_env_vars:
+            if staged["name"] == env_var.name:
+                staged_var = staged
+                break
+        
+        if staged_var and staged_var["value"] is not None:
+            # Determine source for display
+            if env_var.source.startswith('env-config:'):
+                setting_key = env_var.source.split(':', 1)[1]
+                test_value = test_config.get(setting_key) if test_config else None
+                config_value = getattr(env_settings, setting_key, None) if env_settings and hasattr(env_settings, setting_key) else None
+                
+                if test_value is not None:
+                    if config_value is not None:
+                        source = 'test-config (\033[2;9menv-config\033[0m)'
+                    else:
+                        source = 'test-config'
+                    suite_settings_count += 1
+                elif config_value is not None:
+                    source = 'env-config'
+                    config_settings_count += 1
                 else:
-                    source = 'test-config'
-                suite_settings_count += 1
-            elif config_value is not None:
-                value = config_value
-                source = 'env-config'
-                config_settings_count += 1
+                    source = 'default'
+            elif env_var.source == 'app:id':
+                source = 'app:id'
+            elif env_var.source.startswith('secret:'):
+                source = 'secret'
+            elif env_var.source == 'derived':
+                source = 'derived'
             else:
-                value = None
-                source = None
+                source = 'unknown'
             
-            # Use default value if no source provided one
-            if value is None and env_var.default is not None:
-                value = env_var.default
-                source = 'default'
-            
-            if value is not None:
-                # Convert boolean to lowercase string
-                if isinstance(value, bool):
-                    value = str(value).lower()
-                _stage_env_var(staged_env_vars, env_vars_info, env_var.name, str(value), source)
-                
-        elif env_var.source == 'app:id':
-            if app_config and 'id' in app_config:
-                _stage_env_var(staged_env_vars, env_vars_info, env_var.name, app_config['id'], 'app:id')
-                
-        elif env_var.source == 'derived':
-            # Generic derived method invocation
-            if not env_var.method:
-                logger.error(f"Derived variable {env_var.name} missing method")
-                continue
-                
-            # Validate method name (simple Python function name)
-            import re
-            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', env_var.method):
-                logger.error(f"Invalid method name: {env_var.method}")
-                continue
-                
-            # Check if method exists in this module
-            if not hasattr(sys.modules[__name__], env_var.method):
-                logger.error(f"Method {env_var.method} not found in {__name__}")
-                continue
-                
-            # Call the method with available context
-            method_func = getattr(sys.modules[__name__], env_var.method)
-            try:
-                result = method_func(staged_env_vars, env_settings)
-                if result:
-                    _stage_env_var(staged_env_vars, env_vars_info, env_var.name, result, 'derived')
-            except Exception as e:
-                logger.error(f"Failed to derive {env_var.name} using {env_var.method}: {e}")
+            _stage_env_var({}, env_vars_info, env_var.name, staged_var["value"], source)
     
     # Step 4: All environment variables now processed via manifest loop above
     
@@ -187,18 +403,20 @@ def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None,
         if env_var.name.startswith('TEST_') and not test_mode:
             continue
             
-        # Check if explicit conditions are met (same logic as processing loop)
-        condition_met = True
-        if env_var.condition:
-            for key, expected_value in env_var.condition.items():
-                actual_value = test_config.get(key) if test_config else None
-                if actual_value != expected_value:
-                    condition_met = False
-                    break
+        # Check if variable was staged and has a value
+        staged_var = None
+        for staged in staged_env_vars:
+            if staged["name"] == env_var.name:
+                staged_var = staged
+                break
         
-        # If conditions met but no value staged, check if it's optional
-        if condition_met and env_var.name not in staged_env_vars:
+        # If variable was staged but has no value, check if it's optional
+        if staged_var and staged_var["value"] is None:
             # Skip if variable is marked as optional
+            if not env_var.optional:
+                missing_vars.append(env_var.name)
+        elif staged_var is None:
+            # Variable was not staged at all, check if it's optional
             if not env_var.optional:
                 missing_vars.append(env_var.name)
     
@@ -210,43 +428,12 @@ def load_env(env_name: Optional[str] = None, test_mode: Optional[str] = None,
         sys.exit(1)
     
     # Step 6: Apply all staged environment variables to os.environ
-    for var_name, var_value in staged_env_vars.items():
-        os.environ[var_name] = var_value
+    for staged_var in staged_env_vars:
+        if staged_var["load"] and staged_var["value"] is not None:
+            os.environ[staged_var["name"]] = staged_var["value"]
     
-    # Step 7: Set up secrets (create Settings object from staged vars)
-    if not env_settings:
-        from .settings import Settings
-        env_settings = Settings()
-        
-    # Update settings object with staged values for secrets setup
-    # Use dynamic mapping based on environment variable names
-    for env_var_name, env_var_value in staged_env_vars.items():
-        # Convert env var name to settings field name (lowercase with underscores)
-        field_name = env_var_name.lower()
-        
-        # Skip if settings object doesn't have this field
-        if not hasattr(env_settings, field_name):
-            continue
-            
-        # Convert string values to appropriate types
-        if env_var_value.lower() in ('true', 'false'):
-            # Boolean conversion
-            setattr(env_settings, field_name, env_var_value.lower() == 'true')
-        elif env_var_value.isdigit():
-            # Integer conversion
-            setattr(env_settings, field_name, int(env_var_value))
-        else:
-            # String value
-            setattr(env_settings, field_name, env_var_value)
-    
-    # Set defaults for fields not covered by environment variables
-    env_settings.local = True  # Default for test scenarios
-    
-    try:
-        setup_secrets_environment(env_settings)
-    except Exception as e:
-        print(f"❌ Failed to set up secrets: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Step 7: Secrets are now handled directly in environment_variables.yaml
+    # No need to call setup_secrets_environment since we consolidated secrets
     
     # Show CONFIGURATION SOURCE table (unless quiet)
     if not quiet:
@@ -267,7 +454,7 @@ def _stage_env_var(staged_env_vars: Dict[str, str], env_vars_info: list,
     env_vars_info.append((env_name, value, source))
 
 
-def _display_comprehensive_environment_variables(env_vars_manifest: list, staged_env_vars: dict, 
+def _display_comprehensive_environment_variables(env_vars_manifest: list, staged_env_vars: list, 
                                                test_mode: str, test_config: dict, env_settings) -> int:
     """Display comprehensive environment variables table showing all variables and their status.
     
@@ -291,59 +478,16 @@ def _display_comprehensive_environment_variables(env_vars_manifest: list, staged
         if env_var.name.startswith('TEST_') and not test_mode:
             continue
             
-        # Check if conditions are met (same logic as processing loop)
-        condition_met = True
-        if env_var.condition:
-            for condition_key, condition_value in env_var.condition.items():
-                actual_value = None
-                if condition_key in test_config:
-                    actual_value = test_config[condition_key]
-                elif env_settings and hasattr(env_settings, condition_key):
-                    actual_value = getattr(env_settings, condition_key)
-                
-                if actual_value != condition_value:
-                    condition_met = False
-                    break
+        # Find the staged variable
+        staged_var = None
+        for staged in staged_env_vars:
+            if staged["name"] == env_var.name:
+                staged_var = staged
+                break
         
         # Determine display values based on status
-        if not condition_met:
-            # Condition not met - show as skipped
-            variable_name = f"➖ {env_var.name}"
-            display_value = "\033[90m(skipped)\033[0m"  # Gray text
-            status = "\033[90m(condition not met)\033[0m"  # Gray text
-            skipped_count += 1
-        elif env_var.name in staged_env_vars:
-            # Variable was processed and has value
-            variable_name = f"✅ {env_var.name}"
-            value = staged_env_vars[env_var.name]
-            # Truncate value to fit in column
-            display_value = value if len(value) <= 23 else value[:20] + "..."
-            
-            # Determine source
-            if env_var.source.startswith('env-config:'):
-                setting_key = env_var.source.split(':', 1)[1]
-                test_value = test_config.get(setting_key) if test_config else None
-                config_value = getattr(env_settings, setting_key, None) if env_settings and hasattr(env_settings, setting_key) else None
-                
-                if test_value is not None:
-                    if config_value is not None:
-                        status = 'test-config \033[90m(\033[9menv-config\033[0m\033[90m)\033[0m'
-                    else:
-                        status = 'test-config'
-                elif config_value is not None:
-                    status = 'env-config'
-                else:
-                    status = 'default'
-            elif env_var.source == 'app:id':
-                status = 'app:id'
-            elif env_var.source == 'derived':
-                status = 'derived'
-            else:
-                status = 'unknown'
-            
-            processed_count += 1
-        else:
-            # Variable should be processed but has no value
+        if staged_var is None:
+            # Variable was not staged at all
             if env_var.optional:
                 # Optional variable with no value - show as skipped
                 variable_name = f"➖ {env_var.name}"
@@ -356,6 +500,22 @@ def _display_comprehensive_environment_variables(env_vars_manifest: list, staged
                 display_value = "\033[90m(missing)\033[0m"  # Gray text
                 status = "\033[31mREQUIRED\033[0m"  # Red text
                 missing_count += 1
+        elif staged_var["value"] is None:
+            # Variable was staged but condition not met
+            variable_name = f"➖ {env_var.name}"
+            display_value = "\033[90m(skipped)\033[0m"  # Gray text
+            status = "\033[90m(condition not met)\033[0m"  # Gray text
+            skipped_count += 1
+        else:
+            # Variable was processed and has value
+            variable_name = f"✅ {env_var.name}"
+            value = staged_var["value"]
+            # Truncate value to fit in column
+            display_value = value if len(value) <= 23 else value[:20] + "..."
+            
+            # Determine source (this is simplified since we don't track source in staged_env_vars)
+            status = 'staged'
+            processed_count += 1
         
         # Handle alignment manually for colored text
         # Calculate visible length (excluding ANSI codes) for proper padding
@@ -488,3 +648,96 @@ def derive_api_url(staged_env_vars, env_settings):
     
     # 4. No valid configuration - cannot derive URL
     raise RuntimeError("Cannot derive API URL: neither local=true nor project_id specified")
+
+
+
+
+
+def _get_secret_value(secret_name: str, settings, default_value: str = None, staged_env_vars: list = None) -> str:
+    """Get secret value from Secret Manager or use default.
+    
+    Args:
+        secret_name: Name of the secret (e.g., 'gemini-api-key')
+        settings: Settings object with project_id
+        default_value: Default value to use if Secret Manager not available
+        staged_env_vars: List of staged environment variables for placeholder expansion
+        
+    Returns:
+        Secret value
+        
+    Raises:
+        RuntimeError: If project_id is set but Secret Manager fails
+    """
+    project_id = getattr(settings, 'project_id', None)
+    
+    # If project_id is set, demand success from Secret Manager
+    if project_id:
+        from ..secrets.secrets_manager import get_secret_manager_value
+        value = get_secret_manager_value(project_id, secret_name)
+        if not value:
+            raise RuntimeError(f"Secret '{secret_name}' not found in Secret Manager for project '{project_id}'")
+        return value
+    
+    # Only use default value if no project_id (local development without Secret Manager)
+    if default_value:
+        # Expand placeholders in default value using staged environment variables
+        if '{env:' in default_value:
+            if staged_env_vars is None:
+                raise RuntimeError(f"Secret '{secret_name}' requires staged environment variables for placeholder expansion")
+            expanded = _expand_env_placeholders(default_value, staged_env_vars)
+            return expanded
+        return default_value
+    
+    raise SecretUnavailableException(secret_name)
+
+
+def _resolve_and_filter_env_vars(env_vars_manifest: list, env_var_names: list) -> list:
+    """Resolve groups and filter environment variables based on specified names.
+    
+    Args:
+        env_vars_manifest: Full list of environment variable definitions
+        env_var_names: List of environment variable names and group names to include
+        
+    Returns:
+        Filtered list of environment variable definitions
+        
+    Raises:
+        ValueError: If a specified variable name or group name is not found
+    """
+    import yaml
+    from pathlib import Path
+    
+    # Load groups from environment_variables.yaml
+    env_vars_yaml_path = Path(__file__).parent / 'environment_variables.yaml'
+    if not env_vars_yaml_path.exists():
+        raise FileNotFoundError(f"environment_variables.yaml not found: {env_vars_yaml_path}")
+    
+    with open(env_vars_yaml_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    groups = config.get('groups', {})
+    
+    # Build set of required environment variable names
+    required_names = set()
+    
+    for name in env_var_names:
+        name = name.strip()
+        
+        # Check if it's a group name
+        if name in groups:
+            required_names.update(groups[name])
+        else:
+            # Check if it's an individual environment variable name
+            var_exists = any(env_var.name == name for env_var in env_vars_manifest)
+            if not var_exists:
+                raise ValueError(f"Environment variable or group '{name}' not found in environment_variables.yaml")
+            required_names.add(name)
+    
+    # Filter the manifest to only include required variables
+    filtered_manifest = []
+    for env_var in env_vars_manifest:
+        if env_var.name in required_names:
+            filtered_manifest.append(env_var)
+    
+    logger.debug(f"Filtered environment variables: {[var.name for var in filtered_manifest]}")
+    return filtered_manifest

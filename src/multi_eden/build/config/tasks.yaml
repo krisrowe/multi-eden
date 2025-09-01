@@ -39,7 +39,7 @@ tasks:
   
   # Test tasks can specify their own defaults
   test:
-    env: unit-testing
+    vars: "auth,stub,test"
   
   # Build and deploy tasks
   build:
@@ -47,3 +47,7 @@ tasks:
   
   deploy:
     env: prod
+  
+  # New prompt task for AI interactions
+  prompt:
+    vars: "GEMINI_API_KEY"
