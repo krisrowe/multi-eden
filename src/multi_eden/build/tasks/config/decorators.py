@@ -122,8 +122,13 @@ def requires_config_env(func: Callable) -> Callable:
         
         # Resolve the environment name with precedence: --config-env > MULTI_EDEN_ENV > task defaults
         config_env = kwargs.get('config_env')
-        if not config_env:
+        env_source_type = None
+        if config_env:
+            env_source_type = "--config-env argument"
+        else:
             config_env = os.getenv('MULTI_EDEN_ENV')
+            if config_env:
+                env_source_type = "MULTI_EDEN_ENV environment variable"
         
         # Check if task has quiet parameter
         quiet = kwargs.get('quiet', False)
@@ -158,11 +163,17 @@ def requires_config_env(func: Callable) -> Callable:
             
             # Load environment variables for this task - let load_env determine if --config-env is required
             try:
+                # Build env_source description - just pass the environment source type
+                if env_source_type:
+                    env_source = env_source_type
+                else:
+                    env_source = f"task {task_name} vars: {vars_config}"
+                
                 load_env(
                     env_name=config_env,  # Pass through the original config_env (may be None)
                     test_mode=test_mode,  # Pass test_mode for test tasks
                     env_var_names=env_var_names,
-                    env_source=f"task {task_name} vars: {vars_config}"
+                    env_source=env_source
                 )
             except Exception as e:
                 print(f"❌ Failed to load environment variables for task '{task_name}': {e}", file=sys.stderr)
