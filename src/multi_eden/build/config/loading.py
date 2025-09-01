@@ -68,7 +68,7 @@ def stage_env_var(name: str, load: bool, staged_env_vars: list, env_vars_manifes
             return
     
     # Step 2: Add name to staged_env_vars with temporary value
-    staged_var = {"name": name, "load": load, "value": "***TEMP***"}
+    staged_var = {"name": name, "load": load, "value": "***TEMP***", "source": None}
     staged_env_vars.append(staged_var)
     
     # Find the environment variable definition in manifest
@@ -145,20 +145,20 @@ def stage_env_var(name: str, load: bool, staged_env_vars: list, env_vars_manifes
         
         if test_value is not None:
             value = test_value
-            source = 'test-config'
+            staged_var["source"] = 'test-config'
         elif config_value is not None:
             value = config_value
-            source = 'env-config'
+            staged_var["source"] = 'env-config'
         
         # Use default value if no source provided one
         if value is None and env_var.default is not None:
             value = env_var.default
-            source = 'default'
+            staged_var["source"] = 'default'
             
     elif env_var.source == 'app:id':
         if app_config and 'id' in app_config:
             value = app_config['id']
-            source = 'app:id'
+            staged_var["source"] = 'app:id'
             
     elif env_var.source.startswith('secret:'):
         secret_name = env_var.source.split(':', 1)[1]
@@ -175,7 +175,7 @@ def stage_env_var(name: str, load: bool, staged_env_vars: list, env_vars_manifes
         # Load the secret directly
         try:
             value = _get_secret_value(secret_name, env_settings, env_var.default, staged_env_vars)
-            source = 'secret'
+            staged_var["source"] = 'secret'
             logger.debug(f"Successfully loaded secret {secret_name} for {name}")
         except SecretUnavailableException:
             # Remove the staged variable before re-raising
@@ -207,7 +207,7 @@ def stage_env_var(name: str, load: bool, staged_env_vars: list, env_vars_manifes
         method_func = getattr(sys.modules[__name__], env_var.method)
         try:
             value = method_func(staged_env_vars, env_settings)
-            source = 'derived'
+            staged_var["source"] = 'derived'
         except Exception as e:
             staged_env_vars.remove(staged_var)
             raise ValueError(f"Failed to derive {name} using {env_var.method}: {e}")
@@ -513,8 +513,8 @@ def _display_comprehensive_environment_variables(env_vars_manifest: list, staged
             # Truncate value to fit in column
             display_value = value if len(value) <= 23 else value[:20] + "..."
             
-            # Determine source (this is simplified since we don't track source in staged_env_vars)
-            status = 'staged'
+            # Determine source from staged variable
+            status = staged_var.get("source", 'unknown')
             processed_count += 1
         
         # Handle alignment manually for colored text
