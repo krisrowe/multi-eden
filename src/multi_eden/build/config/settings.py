@@ -24,9 +24,9 @@ class Settings:
     project_id: Optional[str] = None  # If set, indicates cloud environment
     
     # API configuration  
-    api_in_memory: bool = True  # Whether API runs in same process as tests
+    test_api_in_memory: bool = True  # Whether API runs in same process as tests
     test_api_url: Optional[str] = None  # URL for out-of-process API testing
-    test_api_port: Optional[int] = None  # Port for local API server
+    port: Optional[int] = None  # Port for local API server
     test_omit_integration: bool = False  # Whether to skip integration tests
     
     # Authentication settings
@@ -154,15 +154,15 @@ class Settings:
             if self.port:
                 return f"http://localhost:{self.port}"
             else:
-                return "http://localhost"
+                return "http://localhost"  # No port = use HTTP default
         
-        # 3. Cloud environment (project_id present) - get actual Cloud Run URL
+        # 4. Cloud environment (project_id present) - get actual Cloud Run URL
         if self.project_id:
             from multi_eden.internal.gcp import get_cloud_run_service_url
             service_name = f"{self.app_id}-api"
             return get_cloud_run_service_url(self.project_id, service_name)
         
-        # 4. No configuration available
+        # 5. No configuration available
         raise RuntimeError("Cannot derive API URL: no project_id for cloud and local execution not enabled")
     
     def to_dict(self) -> Dict[str, Any]:

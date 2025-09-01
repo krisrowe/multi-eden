@@ -9,7 +9,7 @@ modes:
     # Test mode provides complete config - no env needed
     stub_ai: true
     stub_db: true
-    api_in_memory: true
+    test_api_in_memory: true
     custom_auth_enabled: true
     omit_integration: true
     
@@ -20,7 +20,7 @@ modes:
     # Test mode provides partial config - env required for project_id etc
     stub_ai: false
     stub_db: true
-    api_in_memory: true
+    test_api_in_memory: true
     local: true
     custom_auth_enabled: true
     
@@ -29,11 +29,11 @@ modes:
     tests:
       paths: ["db", "providers"]
     default-env: "db-testing"
-    in-memory-api: true
+    test_api_in_memory: true
     
   api:
     description: "API tests via HTTP (focus on network interface)"
     tests:
       paths: ["api", "providers"]
     default-env: "local"
-    in-memory-api: false
+    test_api_in_memory: false

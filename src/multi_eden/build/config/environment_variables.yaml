@@ -22,25 +22,25 @@ environment_variables:
     condition:
       local: false
   
-  # Test framework API endpoint
+  # Test framework API endpoint (only when not in-memory)
   - name: "TEST_API_URL"
     source: "derived"
     method: "derive_api_url"
     condition:
-      api_in_memory: false
+      test_api_in_memory: false
       
   # Application identifier
   - name: "APP_ID"
     source: "app:id"
       
-  # Test API server port (local development only)
-  - name: "TEST_API_PORT"
+  # API server port (optional - uses protocol default if not specified)
+  - name: "PORT"
     source: "env-config:port"
     optional: true
       
   # Test framework variables (only in test modes)
   - name: "TEST_API_IN_MEMORY"
-    source: "env-config:api_in_memory"
+    source: "env-config:test_api_in_memory"
     default: true
     
   - name: "TEST_OMIT_INTEGRATION"
