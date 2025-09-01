@@ -25,6 +25,9 @@ class Settings:
     
     # API configuration  
     api_in_memory: bool = True  # Whether API runs in same process as tests
+    test_api_url: Optional[str] = None  # URL for out-of-process API testing
+    test_api_port: Optional[int] = None  # Port for local API server
+    test_omit_integration: bool = False  # Whether to skip integration tests
     
     # Authentication settings
     custom_auth_enabled: bool = True
@@ -36,8 +39,7 @@ class Settings:
     # Security settings
     local: bool = False  # Whether to allow local defaults for secrets
     
-    # Network configuration
-    port: Optional[int] = None  # API port override
+
     
     @classmethod
     def from_config_env(cls, config_env: str, app_config_path: str = "config/environments.yaml") -> 'Settings':

@@ -18,6 +18,8 @@ class EnvVarDefinition:
     setting_key: Optional[str] = None  # Auto-derived from name if not specified
     method: Optional[str] = None  # For derived variables
     condition: Optional[Dict[str, Any]] = None  # For conditional variables
+    default: Optional[Any] = None  # Default value if no source provides one
+    optional: bool = False
 
 
 def load_env_vars_manifest() -> List[EnvVarDefinition]:
@@ -41,7 +43,9 @@ def load_env_vars_manifest() -> List[EnvVarDefinition]:
                 source=env_config.get('source', 'setting'),
                 setting_key=env_config.get('setting_key'),
                 method=env_config.get('method'),
-                condition=env_config.get('condition')
+                condition=env_config.get('condition'),
+                default=env_config.get('default'),
+                optional=env_config.get('optional', False)
             ))
             
         return env_vars

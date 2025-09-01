@@ -3,30 +3,6 @@
 # Apps can override these in their config/env/settings.yaml
 
 environments:
-  # Unit testing - everything stubbed, in-memory
-  unit-testing:
-    api_in_memory: true
-    custom_auth_enabled: true
-    stub_ai: true      # ai_provider: "mocked"
-    stub_db: true      # data_provider: "tinydb" (in-memory)
-    local: true        # Allow local override secrets
-    
-  # AI testing - real AI, stubbed DB, in-memory
-  ai-testing:
-    api_in_memory: true
-    custom_auth_enabled: true
-    stub_ai: false     # ai_provider: "real"
-    stub_db: true      # data_provider: "tinydb" (in-memory)
-    local: true        # Allow local override secrets
-    
-  # DB testing - real DB, stubbed AI, in-memory
-  db-testing:
-    api_in_memory: true
-    custom_auth_enabled: true
-    stub_ai: true      # ai_provider: "mocked"
-    stub_db: false     # data_provider: "firestore" (real DB)
-    local: true        # Allow local override secrets
-    
   # Local testing - out-of-process API (port determined by task: server=8000, docker=8001)
   local:
     api_in_memory: false
@@ -35,16 +11,7 @@ environments:
     stub_db: true
     local: true        # Allow local override secrets
     port: 8000         # API server port
-    
-  # Local with AI - out-of-process API + real AI (port determined by task)
-  local-ai:
-    api_in_memory: false
-    custom_auth_enabled: true
-    stub_ai: false     # ai_provider: "real"
-    stub_db: true      # data_provider: "tinydb"
-    local: true        # Allow local override secrets
-    port: 8000         # API server port
-    
+
   # Local Docker - out-of-process API in Docker container on port 8001
   local-docker:
     api_in_memory: false

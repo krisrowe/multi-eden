@@ -19,9 +19,11 @@ environment_variables:
     
   - name: "PROJECT_ID"
     source: "env-config:project_id"
+    condition:
+      local: false
   
   # Test framework API endpoint
-  - name: "API_TESTING_URL"
+  - name: "TEST_API_URL"
     source: "derived"
     method: "derive_api_url"
     condition:
@@ -31,8 +33,16 @@ environment_variables:
   - name: "APP_ID"
     source: "app:id"
       
-  # API server port
-  - name: "PORT"
+  # Test API server port (local development only)
+  - name: "TEST_API_PORT"
     source: "env-config:port"
-    condition:
-      api_in_memory: false
+    optional: true
+      
+  # Test framework variables (only in test modes)
+  - name: "TEST_API_IN_MEMORY"
+    source: "env-config:api_in_memory"
+    default: true
+    
+  - name: "TEST_OMIT_INTEGRATION"
+    source: "env-config:omit_integration"
+    default: false

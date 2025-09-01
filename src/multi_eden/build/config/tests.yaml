@@ -1,4 +1,3 @@
-
 # This file defines test modes and their execution configuration.
 # Test modes are selected via test suite selection (unit, api, firestore, ai).
 
@@ -11,7 +10,6 @@ modes:
     stub_ai: true
     stub_db: true
     api_in_memory: true
-    local: true
     custom_auth_enabled: true
     omit_integration: true
     
