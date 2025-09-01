@@ -7,6 +7,7 @@ such as automatic configuration environment setup.
 
 import functools
 import sys
+import os
 from typing import Optional, Callable, Any, Tuple
 from .setup import get_task_default_env, get_task_vars
 from pathlib import Path
@@ -42,6 +43,9 @@ def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict,
     if config_env:
         env_name = config_env
         selection_method = "command line argument"
+    elif os.getenv('MULTI_EDEN_ENV'):
+        env_name = os.getenv('MULTI_EDEN_ENV')
+        selection_method = "MULTI_EDEN_ENV environment variable"
     elif default_env_callback:
         try:
             # Create a mock context object for the callback
@@ -116,8 +120,10 @@ def requires_config_env(func: Callable) -> Callable:
         # Get the task name from the function
         task_name = func.__name__
         
-        # Check if config_env is explicitly provided
+        # Resolve the environment name with precedence: --config-env > MULTI_EDEN_ENV > task defaults
         config_env = kwargs.get('config_env')
+        if not config_env:
+            config_env = os.getenv('MULTI_EDEN_ENV')
         
         # Check if task has quiet parameter
         quiet = kwargs.get('quiet', False)
@@ -125,7 +131,6 @@ def requires_config_env(func: Callable) -> Callable:
         # Check if task has debug parameter and set LOG_LEVEL
         debug = kwargs.get('debug', False)
         if debug:
-            import os
             os.environ['LOG_LEVEL'] = 'DEBUG'
             print("🐛 Debug logging enabled (LOG_LEVEL=DEBUG)", file=sys.stderr)
             
