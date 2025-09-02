@@ -19,6 +19,53 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _inject_test_api_url_callback():
+    """Callback to inject TEST_API_URL when needed for API tests.
+    
+    Only injects when:
+    - TEST_API_IN_MEMORY=false (API tests need external server)
+    - TEST_API_URL is not already set (don't override explicit values)
+    
+    Returns:
+        list: List of (var_name, var_value, var_source) tuples to inject
+    """
+    # Only inject if API tests need external server
+    if os.getenv('TEST_API_IN_MEMORY', '').lower() != 'false':
+        return []
+    
+    # Don't override explicit TEST_API_URL
+    if os.getenv('TEST_API_URL'):
+        return []
+    
+    # Build API URL from available environment variables
+    api_url = None
+    
+    # Local development
+    if os.getenv('LOCAL', '').lower() == 'true':
+        port = os.getenv('PORT')
+        if port and port != '80':
+            api_url = f'http://localhost:{port}'
+        else:
+            api_url = 'http://localhost'
+    
+    # Cloud environment - construct Cloud Run URL
+    elif project_id := os.getenv('PROJECT_ID'):
+        app_id = os.getenv('APP_ID')
+        if app_id:
+            try:
+                from multi_eden.internal.gcp import get_cloud_run_service_url
+                service_name = f'{app_id}-api'
+                api_url = get_cloud_run_service_url(project_id, service_name)
+            except Exception as e:
+                logger.warning(f'Could not get Cloud Run URL via API: {e}')
+                # Could add fallback URL construction here if needed
+    
+    if api_url:
+        return [('TEST_API_URL', api_url, 'task-derived')]
+    
+    return []
+
+
 def _get_test_paths(suite: str) -> list:
     """Get test paths for a suite without loading full test config."""
     import yaml
@@ -52,7 +99,7 @@ def _get_test_paths(suite: str) -> list:
     'show_config': 'Show detailed configuration including partial secret values',
     'quiet': 'Suppress configuration display (show only test results)'
 })
-@requires_config_env
+@requires_config_env(post_load_callback=_inject_test_api_url_callback)
 def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config=False, quiet=False):
     """
     Run tests for a specific suite.

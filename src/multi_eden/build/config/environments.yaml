@@ -13,7 +13,7 @@ environments:
       port: 8000         # API server port
       GEMINI_API_KEY: "fake-local-gemini-key"
       JWT_SECRET_KEY: "local-jwt-secret"
-      ALLOWED_USER_EMAILS: "test-user@local.dev"
+      ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
       APP_ID: "multi-eden-sdk"
 
   # Local Docker - out-of-process API in Docker container on port 8001

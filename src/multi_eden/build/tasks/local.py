@@ -208,12 +208,15 @@ def check_port_available(port, check_listening=False, max_retries=10, retry_inte
         return not check_listening
 
 
+from multi_eden.build.tasks.config.decorators import requires_config_env
+
 @task(help={
     'port': 'Port to run the API server on (default: 8000)',
-    'env': f'Configuration environment to use (default: {DEFAULT_ENV})',
+    'config_env': f'Configuration environment to use (default: {DEFAULT_ENV})',
     'background': 'Run in background (default: True)'
 })
-def api_start(ctx, port=None, env=DEFAULT_ENV, background=True):
+@requires_config_env
+def api_start(ctx, port=None, config_env=DEFAULT_ENV, background=True):
     """Start the API server."""
     try:
         # Get repository root and load API configuration for process detection
@@ -278,19 +281,11 @@ def api_start(ctx, port=None, env=DEFAULT_ENV, background=True):
         
         venv_python = repo_root / venv_path / "bin" / "python"
         if not venv_python.exists():
-            print(f"❌ Virtual environment not found at {repo_root / venv_path}")
-            print(f"💡 Check your config/app.yaml api.venv_path setting")
+            print(f" Virtual environment not found at {repo_root / venv_path}")
+            print(f" Check your config/app.yaml api.venv_path setting")
             return False
         
-        # Load environment configuration
-        try:
-            from multi_eden.build.config.loading import load_env
-            env_source = "--env" if env != DEFAULT_ENV else "task default"
-            load_env(env, env_source=env_source)
-            print(f"🔧 Loaded configuration from {env} environment")
-        except Exception as e:
-            print(f"❌ Failed to load configuration for environment '{env}': {e}")
-            raise RuntimeError(f"Configuration loading failed: {e}")
+        # Environment configuration loaded by @requires_config_env decorator
         
         # Set environment variables
         env_vars = os.environ.copy()
@@ -309,7 +304,7 @@ def api_start(ctx, port=None, env=DEFAULT_ENV, background=True):
         
         # Build the command using API configuration
         serve_command = ' '.join(api_info['serve_args'])
-        cmd = f"{venv_python} -m {module_name} {serve_command} --config-env={env}"
+        cmd = f"{venv_python} -m {module_name} {serve_command} --config-env={config_env}"
         
         print(f"🚀 Starting API server...")
         print(f"📁 Working directory: {repo_root}")

@@ -93,7 +93,7 @@ def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict,
     return env_name, selection_method
 
 
-def requires_config_env(func: Callable) -> Callable:
+def requires_config_env(func: Callable = None, *, post_load_callback=None) -> Callable:
     """
     Decorator that requires a configuration environment to be set up.
     
@@ -114,6 +114,11 @@ def requires_config_env(func: Callable) -> Callable:
             # specific env vars are loaded if vars is configured in tasks.yaml
             pass
     """
+    
+    # Handle both @requires_config_env and @requires_config_env(post_load_callback=...)
+    if func is None:
+        # Called with arguments: @requires_config_env(post_load_callback=...)
+        return lambda f: requires_config_env(f, post_load_callback=post_load_callback)
     
     @functools.wraps(func)
     def wrapper(ctx, *args, **kwargs):
@@ -181,7 +186,8 @@ def requires_config_env(func: Callable) -> Callable:
                 
                 load_env_dynamic(
                     env_name=config_env,  # Pass through the original config_env (may be None)
-                    test_mode=test_mode  # Pass test_mode for test tasks
+                    test_mode=test_mode,  # Pass test_mode for test tasks
+                    post_load_callback=post_load_callback  # Pass callback if provided
                     # Note: env_var_names and env_source not supported in new system
                 )
             except Exception as e:
@@ -191,7 +197,7 @@ def requires_config_env(func: Callable) -> Callable:
             # For tasks without vars config, use the original behavior but pass through config_env
             # Let load_env determine if --config-env is required
             try:
-                load_env_dynamic(env_name=config_env, test_mode=test_mode, quiet=quiet)
+                load_env_dynamic(env_name=config_env, test_mode=test_mode, quiet=quiet, post_load_callback=post_load_callback)
             except Exception as e:
                 error_msg = f"Failed to load configuration environment: {e}"
                 print(f"❌ {error_msg}")

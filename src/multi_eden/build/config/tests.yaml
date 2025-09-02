@@ -13,7 +13,6 @@ modes:
       test_api_in_memory: true
       custom_auth_enabled: true
       TEST_OMIT_INTEGRATION: true
-      GEMINI_API_KEY: "fake-gemini-api-key-for-testing-only"
       JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"
       ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
       APP_ID: "multi-eden-sdk"
@@ -39,11 +38,13 @@ modes:
     tests:
       paths: ["db", "providers"]
     default-env: "db-testing"
-    test_api_in_memory: true
+    environment:
+      test_api_in_memory: true
     
   api:
     description: "API tests via HTTP (focus on network interface)"
     tests:
       paths: ["api", "providers"]
     default-env: "local"
-    test_api_in_memory: false
+    environment:
+      test_api_in_memory: false

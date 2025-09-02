@@ -98,7 +98,7 @@ def _get_secret_from_manager(project_id: str, secret_name: str) -> str:
 
 def load_env_dynamic(env_name: Optional[str] = None, test_mode: Optional[str] = None, 
                     repo_root=None, quiet: bool = False, env_source: str = "unknown",
-                    env_var_names: Optional[list] = None) -> None:
+                    env_var_names: Optional[list] = None, post_load_callback=None) -> None:
     """Load environment variables dynamically from available sources.
     
     Process:
@@ -121,12 +121,18 @@ def load_env_dynamic(env_name: Optional[str] = None, test_mode: Optional[str] = 
     # Step 1: Load from base environment (if exists)
     try:
         base_config = _load_environment_config('base')
-        for key, value in base_config.items():
+        # Extract the nested 'environment' dict if it exists
+        if 'environment' in base_config:
+            base_vars = base_config['environment']
+        else:
+            base_vars = base_config
+            
+        for key, value in base_vars.items():
             env_var_name = key.upper()
             if key == 'project_id':
                 project_id = value
             loaded_vars[env_var_name] = (value, 'base-config')
-        logger.debug(f"Loaded {len(base_config)} variables from base-config")
+        logger.debug(f"Loaded {len(base_vars)} variables from base-config")
     except Exception:
         # Base config is optional, ignore if not found
         logger.debug("No base environment config found")
@@ -135,12 +141,18 @@ def load_env_dynamic(env_name: Optional[str] = None, test_mode: Optional[str] = 
     if env_name:
         try:
             env_config = _load_environment_config(env_name)
-            for key, value in env_config.items():
+            # Extract the nested 'environment' dict if it exists
+            if 'environment' in env_config:
+                env_vars = env_config['environment']
+            else:
+                env_vars = env_config
+            
+            for key, value in env_vars.items():
                 env_var_name = key.upper()
                 if key == 'project_id':
                     project_id = value
                 loaded_vars[env_var_name] = (value, 'env-config')
-            logger.debug(f"Loaded {len(env_config)} variables from env-config '{env_name}'")
+            logger.debug(f"Loaded {len(env_vars)} variables from env-config '{env_name}'")
         except Exception as e:
             print(f"❌ Failed to load environment '{env_name}': {e}", file=sys.stderr)
             sys.exit(1)
@@ -203,7 +215,20 @@ def load_env_dynamic(env_name: Optional[str] = None, test_mode: Optional[str] = 
             failed_vars.append((name, e))
             logger.debug(f"Failed to process {name}: {e}")
     
-    # Step 4: Display results (if not quiet)
+    # Step 4: Run post-load callback (if provided)
+    if post_load_callback:
+        try:
+            callback_vars = post_load_callback()
+            if callback_vars:
+                for var_name, var_value, var_source in callback_vars:
+                    os.environ[var_name] = str(var_value)
+                    processed_vars.append((var_name, var_value, var_source))
+                    logger.debug(f"Callback injected {var_name}={var_value} (source: {var_source})")
+        except Exception as e:
+            logger.error(f"Post-load callback failed: {e}")
+            failed_vars.append(("callback", e))
+    
+    # Step 5: Display results (if not quiet)
     if not quiet:
         display_env_vars_dynamic(processed_vars, failed_vars, test_mode, env_name, env_source)
     
