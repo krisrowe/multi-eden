@@ -225,7 +225,8 @@ def stage_env_var(name: str, load: bool, staged_env_vars: list, env_vars_manifes
     else:
         # Remove the staged variable if no value could be loaded
         staged_env_vars.remove(staged_var)
-        raise ValueError(f"Environment variable '{name}' could not be loaded from any source and has no default")
+        if not env_var.optional:
+            raise ValueError(f"Environment variable '{name}' could not be loaded from any source and has no default")
 
 
 def _expand_env_placeholders(value: str, staged_env_vars: list) -> str:

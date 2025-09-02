@@ -37,8 +37,6 @@ environment_variables:
     
   - name: "PROJECT_ID"
     source: "env-config:project_id"
-    condition:
-      local: false
   
   # Application identifier
   - name: "APP_ID"
@@ -51,7 +49,7 @@ environment_variables:
       
   # Test framework API endpoint (only when not in-memory)
   - name: "TEST_API_URL"
-    source: "derived"
+    source: "derived" 
     method: "derive_api_url"
     condition:
       test_api_in_memory: false

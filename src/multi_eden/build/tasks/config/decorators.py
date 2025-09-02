@@ -120,6 +120,16 @@ def requires_config_env(func: Callable) -> Callable:
         # Get the task name from the function
         task_name = func.__name__
         
+        # Check if this is a test task and get the suite name
+        test_mode = None
+        if task_name == 'test':
+            # For test task, get suite from first positional argument
+            if args and len(args) > 0:
+                test_mode = args[0]  # suite argument
+        elif task_name in ['analyze', 'segment']:
+            # These tasks need AI environment variables
+            pass  # Will be handled by vars lookup
+        
         # Resolve the environment name with precedence: --config-env > MULTI_EDEN_ENV > task defaults
         config_env = kwargs.get('config_env')
         env_source_type = None

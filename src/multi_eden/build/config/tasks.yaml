@@ -41,6 +41,13 @@ tasks:
   test:
     vars: "auth,stub,test"
   
+  # AI tasks that need GEMINI_API_KEY and stub configuration
+  analyze:
+    vars: "stub,GEMINI_API_KEY"
+  
+  segment:
+    vars: "stub,GEMINI_API_KEY"
+  
   # Build and deploy tasks
   build:
     env: dev

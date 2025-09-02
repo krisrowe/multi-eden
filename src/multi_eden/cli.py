@@ -113,8 +113,7 @@ def _create_task_runner(module: str, args: List[str], user_args: Dict[str, Any])
     temp_globals = {}
     exec(func_code, globals(), temp_globals)
     
-    # Return the dynamically created function, wrapped in @task
-    return task(temp_globals['task_runner'])
+    return temp_globals['task_runner']
 
 def register_cli_tasks(namespace):
     """Register CLI tasks from cli.yaml configuration."""
