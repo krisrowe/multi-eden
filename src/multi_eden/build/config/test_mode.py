@@ -10,7 +10,20 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 
-def get_test_mode_config(mode: str) -> Dict[str, Any]:
+class TestModeConfig:
+    """Simple container for test mode configuration with environment attribute."""
+    
+    def __init__(self, config_dict: Dict[str, Any]):
+        # Set all top-level keys as attributes
+        for key, value in config_dict.items():
+            setattr(self, key, value)
+        
+        # Ensure environment attribute exists (even if empty)
+        if not hasattr(self, 'environment'):
+            self.environment = {}
+
+
+def get_test_mode_config(mode: str) -> TestModeConfig:
     """
     Get test mode configuration for the specified mode.
     
@@ -21,7 +34,7 @@ def get_test_mode_config(mode: str) -> Dict[str, Any]:
         mode: Test mode name (e.g., 'unit', 'ai', 'db', 'api')
         
     Returns:
-        Dictionary containing test mode configuration
+        TestModeConfig object containing test mode configuration
         
     Raises:
         FileNotFoundError: If tests.yaml doesn't exist
@@ -69,8 +82,8 @@ def get_test_mode_config(mode: str) -> Dict[str, Any]:
     if not isinstance(mode_config, dict):
         raise ValueError(f"Invalid configuration for mode '{mode}' - must be a dictionary")
     
-    # Return a copy to prevent accidental mutation
-    return dict(mode_config)
+    # Return TestModeConfig object
+    return TestModeConfig(mode_config)
 
 
 def get_available_test_modes() -> list[str]:

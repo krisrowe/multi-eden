@@ -79,7 +79,10 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     # Get test paths from test config
     test_paths = None
     if test_config:
-        test_paths = test_config.get('tests', {}).get('paths', [])
+        if hasattr(test_config, 'tests') and isinstance(test_config.tests, dict):
+            test_paths = test_config.tests.get('paths', [])
+        else:
+            test_paths = []
         if test_paths:
             # Make a copy to modify
             test_paths = test_paths.copy()
@@ -137,7 +140,7 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     ])
     
     # Filter out integration tests if omit-integration is true
-    if test_config and test_config.get('omit_integration', False):
+    if os.environ.get('TEST_OMIT_INTEGRATION', '').lower() == 'true':
         cmd.extend(["-m", "not integration"])
         print(f"🔒 Filtering out integration tests for {suite} test suite (omit-integration: true)")
     

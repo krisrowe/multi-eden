@@ -1,22 +1,19 @@
-"""Tests for Gemini AI client functionality."""
+"""Tests for AI prompt functionality using PromptService."""
 import os
-import json
 import pytest
 import logging
+import json
 
-from multi_eden.run.ai.google_client import GoogleClient as GeminiClient
 from multi_eden.run.ai.prompt_service import PromptService
 
 API_KEY_ENV_VAR_NAME = "GEMINI_API_KEY"
 
-class TestGeminiClient:
-    """Test the Gemini AI client functionality."""
+class TestAIPrompts:
+    """Test AI prompt functionality using PromptService."""
     
     def setup_method(self):
         """Set up test fixtures."""
         self.logger = logging.getLogger(__name__)
-        self.service_name = None  # No service name - test raw LLM functionality
-        self.model_name = "gemini-1.5-flash"
         self.default_model = "gemini-2.5-flash"
         self.alt_model = "gemini-2.5-flash-lite"
     
@@ -158,8 +155,8 @@ class TestGeminiClient:
         reason=f"{API_KEY_ENV_VAR_NAME} environment variable not set - skipping real API test"
     )
     @pytest.mark.integration
-    def test_default_model_used(self):
-        """Test that default model for service is used (check meta output)."""
+    def test_default_model_faster_used(self):
+        """Test that default model gemini-2.5-flash is used (check meta output)."""
         self.logger.info("Testing default model usage")
         
         service = PromptService()  # No model override
@@ -174,7 +171,8 @@ class TestGeminiClient:
             assert hasattr(response, 'meta'), "Response should have meta attribute"
             
             # Check that default model was used
-            assert response.meta.model == self.default_model, f"Expected default model {self.default_model}, got {response.meta.model}"
+            expected_model = "gemini-2.5-flash"
+            assert response.meta.model == expected_model, f"Expected default model {expected_model}, got {response.meta.model}"
             
             self.logger.info(f"✅ Default model test successful. Used model: {response.meta.model}")
             
@@ -186,8 +184,8 @@ class TestGeminiClient:
         reason=f"{API_KEY_ENV_VAR_NAME} environment variable not set - skipping real API test"
     )
     @pytest.mark.integration
-    def test_alt_model_specified(self):
-        """Test that alternative model specified was used (check meta output)."""
+    def test_alt_model_fastest_used(self):
+        """Test that alternative model gemini-2.5-flash-lite was used (check meta output)."""
         self.logger.info("Testing alternative model usage")
         
         service = PromptService(model_override=self.alt_model)
@@ -202,7 +200,8 @@ class TestGeminiClient:
             assert hasattr(response, 'meta'), "Response should have meta attribute"
             
             # Check that alternative model was used
-            assert response.meta.model == self.alt_model, f"Expected alt model {self.alt_model}, got {response.meta.model}"
+            expected_model = "gemini-2.5-flash-lite"
+            assert response.meta.model == expected_model, f"Expected alt model {expected_model}, got {response.meta.model}"
             
             self.logger.info(f"✅ Alt model test successful. Used model: {response.meta.model}")
             

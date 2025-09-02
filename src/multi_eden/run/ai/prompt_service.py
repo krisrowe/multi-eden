@@ -47,8 +47,18 @@ class PromptService(ModelBasedService):
     
     def _load_and_set_schema(self):
         """Override to skip schema loading for generic prompts."""
-        # Generic prompts don't need schemas
+        # Generic prompts don't need schemas by default
         logger.debug(f"Skipping schema loading for generic prompt service '{self.service_name}'")
+    
+    def set_schema(self, schema: Dict[str, Any]):
+        """Set a JSON schema for structured output (test purposes only).
+        
+        Args:
+            schema: JSON schema dictionary for structured output
+        """
+        # Set schema on the AI client (same pattern as base class)
+        self.ai_client.set_schema(schema)
+        logger.debug(f"Set custom schema for prompt service: {schema}")
     
     def process(self, user_input: str, **kwargs) -> PromptResponse:
         """Process user input with validation for empty prompts."""

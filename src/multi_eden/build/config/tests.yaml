@@ -6,23 +6,33 @@ modes:
     description: "Unit tests with mocked dependencies"
     tests:
       paths: ["unit", "providers", "api"]
-    # Test mode provides complete config - no env needed
-    stub_ai: true
-    stub_db: true
-    test_api_in_memory: true
-    custom_auth_enabled: true
-    omit_integration: true
+    environment:
+      # Test mode provides complete config - no env needed
+      stub_ai: true
+      stub_db: true
+      test_api_in_memory: true
+      custom_auth_enabled: true
+      TEST_OMIT_INTEGRATION: true
+      GEMINI_API_KEY: "fake-gemini-api-key-for-testing-only"
+      JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"
+      ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
+      APP_ID: "multi-eden-sdk"
     
   ai:
     description: "Integration tests with real AI API calls"
     tests:
       paths: ["ai"]
-    # Test mode provides partial config - env required for project_id etc
-    stub_ai: false
-    stub_db: true
-    test_api_in_memory: true
-    local: true
-    custom_auth_enabled: true
+    environment:
+      # AI tests need real secrets for API calls
+      stub_ai: false
+      stub_db: true
+      test_api_in_memory: true
+      local: true
+      custom_auth_enabled: true
+      GEMINI_API_KEY: "secret:gemini-api-key"
+      JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"
+      ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
+      APP_ID: "multi-eden-sdk"
     
   db:
     description: "Database tests with Firebase data provider"
