@@ -15,8 +15,6 @@ for submodule in [test, build, deploy, docker, local, auth, config, init_app, pr
     for task_name, task in submodule_collection.tasks.items():
         namespace.add_task(task)
 
-# Register app-specific CLI tasks
-from . import cli
-cli.register_cli_tasks(namespace)
+# CLI tasks removed - use clean task approach instead
 
 

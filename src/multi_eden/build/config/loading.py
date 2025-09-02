@@ -15,8 +15,52 @@ import logging
 from typing import Optional
 
 from .test_mode import get_test_mode_config
-from .settings import load_settings
 from ...run.config.settings import SettingValueNotFoundException
+import yaml
+from pathlib import Path
+
+
+def _load_yaml_config(file_path: str) -> dict:
+    """Load YAML config file, return empty dict if not found."""
+    try:
+        with open(file_path, 'r') as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logger.warning(f"Failed to load config from {file_path}: {e}")
+        return {}
+
+
+def _load_environment_config(env_name: str) -> dict:
+    """Load environment config by merging SDK defaults with app overrides."""
+    # Load SDK default environments
+    sdk_path = Path(__file__).parent / "environments.yaml"
+    sdk_config = _load_yaml_config(str(sdk_path))
+    sdk_environments = sdk_config.get('environments', {})
+    
+    # Load app-specific environment overrides (may not exist)
+    app_config = _load_yaml_config("config/environments.yaml")
+    app_environments = app_config.get('environments', {})
+    
+    # Merge environments: for each environment, merge SDK defaults with app overrides
+    merged_environments = {}
+    for env_name_key in sdk_environments:
+        merged_environments[env_name_key] = sdk_environments[env_name_key].copy()
+        if env_name_key in app_environments:
+            # Merge app-specific overrides into SDK defaults
+            merged_environments[env_name_key].update(app_environments[env_name_key])
+    
+    # Add any app-only environments (not in SDK)
+    for env_name_key in app_environments:
+        if env_name_key not in merged_environments:
+            merged_environments[env_name_key] = app_environments[env_name_key]
+    
+    if env_name not in merged_environments:
+        available_envs = list(merged_environments.keys())
+        raise ValueError(f"Unknown config environment '{env_name}'. Available: {available_envs}")
+    
+    return merged_environments[env_name]
 
 
 class SecretUnavailableException(SettingValueNotFoundException):
@@ -76,14 +120,13 @@ def load_env_dynamic(env_name: Optional[str] = None, test_mode: Optional[str] = 
     
     # Step 1: Load from base environment (if exists)
     try:
-        base_config = load_settings('base')
-        if hasattr(base_config, 'environment'):
-            for key, value in base_config.environment.items():
-                env_var_name = key.upper()
-                if key == 'project_id':
-                    project_id = value
-                loaded_vars[env_var_name] = (value, 'base-config')
-            logger.debug(f"Loaded {len(base_config.environment)} variables from base-config")
+        base_config = _load_environment_config('base')
+        for key, value in base_config.items():
+            env_var_name = key.upper()
+            if key == 'project_id':
+                project_id = value
+            loaded_vars[env_var_name] = (value, 'base-config')
+        logger.debug(f"Loaded {len(base_config)} variables from base-config")
     except Exception:
         # Base config is optional, ignore if not found
         logger.debug("No base environment config found")
@@ -91,14 +134,13 @@ def load_env_dynamic(env_name: Optional[str] = None, test_mode: Optional[str] = 
     # Step 2: Load from environment config (overwrites base)
     if env_name:
         try:
-            env_config = load_settings(env_name)
-            if hasattr(env_config, 'environment'):
-                for key, value in env_config.environment.items():
-                    env_var_name = key.upper()
-                    if key == 'project_id':
-                        project_id = value
-                    loaded_vars[env_var_name] = (value, 'env-config')
-                logger.debug(f"Loaded {len(env_config.environment)} variables from env-config '{env_name}'")
+            env_config = _load_environment_config(env_name)
+            for key, value in env_config.items():
+                env_var_name = key.upper()
+                if key == 'project_id':
+                    project_id = value
+                loaded_vars[env_var_name] = (value, 'env-config')
+            logger.debug(f"Loaded {len(env_config)} variables from env-config '{env_name}'")
         except Exception as e:
             print(f"❌ Failed to load environment '{env_name}': {e}", file=sys.stderr)
             sys.exit(1)

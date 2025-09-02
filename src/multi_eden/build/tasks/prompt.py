@@ -8,17 +8,17 @@ environment configuration.
 import sys
 from pathlib import Path
 from invoke import task
-from multi_eden.build.tasks.config.decorators import requires_config_env
+from multi_eden.build.config.loading import load_env_dynamic
 
 
 @task(help={
-    'config_env': 'Configuration environment to use (required for project_id)',
-    'model': 'AI model to use (default: gemini)',
+    'prompt_text': 'The prompt to send to the AI model',
+    'config_env': 'Configuration environment to use (e.g., dev, local)',
+    'model': 'AI model to use (default: gemini-2.5-flash)',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging (sets LOG_LEVEL=DEBUG)'
 })
-@requires_config_env
-def prompt(ctx, prompt_text, config_env=None, model='gemini', quiet=False, debug=False):
+def prompt(ctx, prompt_text, config_env=None, model='gemini-2.5-flash', quiet=False, debug=False):
     """
     Send a prompt to an AI model.
     
@@ -35,18 +35,21 @@ def prompt(ctx, prompt_text, config_env=None, model='gemini', quiet=False, debug
     print(f"🤖 Sending prompt to {model.upper()} model...", file=sys.stderr)
     print(f"💬 Prompt: {prompt_text}", file=sys.stderr)
     
-    # Import model client and send the prompt
+    # Use PromptService directly
     try:
-        from multi_eden.run.ai.factory import create
+        from multi_eden.run.ai.prompt_service import PromptService
         
-        # Get model client for the default service
-        model_client = create('default')
+        # Create prompt service with model override
+        service = PromptService(model_override=model)
         
         # Send the prompt
-        response = model_client.process_prompt(prompt_text)
+        response = service.process(prompt_text)
         
-        # Output the pristine AI response to stdout
-        print(response)
+        # Output the AI response content to stdout (pipe-friendly)
+        if hasattr(response, 'content'):
+            print(response.content)
+        else:
+            print(str(response))
         
         return True
         

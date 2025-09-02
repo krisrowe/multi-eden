@@ -19,6 +19,31 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _get_test_paths(suite: str) -> list:
+    """Get test paths for a suite without loading full test config."""
+    import yaml
+    from pathlib import Path
+    
+    tests_yaml = Path(__file__).parent.parent / "config" / "tests.yaml"
+    try:
+        with open(tests_yaml, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        suite_config = config.get('modes', {}).get(suite, {})
+        test_paths = suite_config.get('tests', {}).get('paths', [])
+        
+        # If providers is in the list, ensure it runs FIRST
+        if 'providers' in test_paths and test_paths.index('providers') != 0:
+            test_paths = test_paths.copy()
+            test_paths.remove('providers')
+            test_paths.insert(0, 'providers')
+            
+        return test_paths
+    except Exception as e:
+        print(f"⚠️  Failed to load test paths for '{suite}': {e}", file=sys.stderr)
+        return []
+
+
 @task(help={
     'suite': 'Test suite to run (unit, ai, firestore, api)',
     'config_env': 'Configuration environment to use (overrides suite default)',
@@ -47,20 +72,14 @@ def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config
     
     # Load test mode config once
     test_config = None
-    if suite:
-        from multi_eden.build.config.test_mode import get_test_mode_config
-        try:
-            test_config = get_test_mode_config(suite)
-        except Exception as e:
-            print(f"❌ Failed to load test mode '{suite}': {e}", file=sys.stderr)
-            sys.exit(1)
-    
     # Environment loading is handled by the @requires_config_env decorator
+    # Just get test paths for pytest - no need to reload full test config
+    test_paths = _get_test_paths(suite) if suite else None
     
-    return run_pytest(suite, config_env, verbose, test_name, show_config, test_config, quiet)
+    return run_pytest(suite, config_env, verbose, test_name, show_config, test_paths, quiet)
 
 
-def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, test_config=None, quiet=False):
+def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, test_paths=None, quiet=False):
     """
     Run pytest with the specified suite and environment.
     
@@ -76,20 +95,7 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     Returns:
         subprocess.CompletedProcess: Result of pytest execution
     """
-    # Get test paths from test config
-    test_paths = None
-    if test_config:
-        if hasattr(test_config, 'tests') and isinstance(test_config.tests, dict):
-            test_paths = test_config.tests.get('paths', [])
-        else:
-            test_paths = []
-        if test_paths:
-            # Make a copy to modify
-            test_paths = test_paths.copy()
-            # If providers is in the list, ensure it runs FIRST
-            if 'providers' in test_paths and test_paths.index('providers') != 0:
-                test_paths.remove('providers')
-                test_paths.insert(0, 'providers')
+    # Test paths are passed in (already processed by _get_test_paths)
     
     if not test_paths:
         print(f"⚠️  No test paths configured for suite '{suite}'")

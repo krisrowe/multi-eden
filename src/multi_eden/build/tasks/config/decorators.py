@@ -11,7 +11,7 @@ import os
 from typing import Optional, Callable, Any, Tuple
 from .setup import get_task_default_env, get_task_vars
 from pathlib import Path
-from multi_eden.build.config.loading import load_env
+from multi_eden.build.config.loading import load_env_dynamic
 
 
 def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict, 
@@ -179,11 +179,10 @@ def requires_config_env(func: Callable) -> Callable:
                 else:
                     env_source = f"task {task_name} vars: {vars_config}"
                 
-                load_env(
+                load_env_dynamic(
                     env_name=config_env,  # Pass through the original config_env (may be None)
-                    test_mode=test_mode,  # Pass test_mode for test tasks
-                    env_var_names=env_var_names,
-                    env_source=env_source
+                    test_mode=test_mode  # Pass test_mode for test tasks
+                    # Note: env_var_names and env_source not supported in new system
                 )
             except Exception as e:
                 print(f"❌ Failed to load environment variables for task '{task_name}': {e}", file=sys.stderr)
@@ -192,7 +191,7 @@ def requires_config_env(func: Callable) -> Callable:
             # For tasks without vars config, use the original behavior but pass through config_env
             # Let load_env determine if --config-env is required
             try:
-                load_env(env_name=config_env, test_mode=test_mode, quiet=quiet, env_source="task default")
+                load_env_dynamic(env_name=config_env, test_mode=test_mode, quiet=quiet)
             except Exception as e:
                 error_msg = f"Failed to load configuration environment: {e}"
                 print(f"❌ {error_msg}")
