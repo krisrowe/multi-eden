@@ -7,6 +7,7 @@ from .google_client import GoogleClient
 from .mock_client import MockClient
 from .translators import get_translator, ModelTranslator
 from .factory import create, get_default_provider_class_name
+from .prompt_service import PromptService
 
 __all__ = [
     'ModelClient',
@@ -15,5 +16,6 @@ __all__ = [
     'get_translator',
     'ModelTranslator',
     'create',
-    'get_default_provider_class_name'
+    'get_default_provider_class_name',
+    'PromptService'
 ]

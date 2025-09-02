@@ -23,7 +23,11 @@ T = TypeVar('T')
 
 
 def _load_services_config() -> dict:
-    """Load services configuration from the app's app.yaml."""
+    """Load services configuration from the app's app.yaml.
+    
+    Returns:
+        Services configuration dict, or empty dict if not available
+    """
     try:
         # Import here to avoid circular imports
         from multi_eden.run.config.settings import _load_app_config
@@ -31,42 +35,53 @@ def _load_services_config() -> dict:
         app_config = _load_app_config()
         
         if 'services' not in app_config:
-            raise RuntimeError("No 'services' section found in config/app.yaml")
+            logger.debug("No 'services' section found in app.yaml, using empty services config")
+            return {'services': {}}
             
         # Wrap in the expected format
         return {'services': app_config['services']}
         
     except Exception as e:
-        raise RuntimeError(f"Failed to load services configuration from app.yaml: {e}")
+        logger.debug(f"Could not load services configuration from app.yaml: {e}")
+        return {'services': {}}
 
 
-def get_service_default_model(service_name: str) -> str:
+def get_service_default_model(service_name: str, class_default: str = None) -> str:
     """Get the default model for a specific service.
+    
+    Priority order:
+    1. app.yaml service config (if exists)
+    2. class_default (if provided)
+    3. fallback default
     
     Args:
         service_name: The service name
+        class_default: Class-level default model (optional)
         
     Returns:
         The default model name for the service
-        
-    Raises:
-        RuntimeError: If no default model is configured for the service
     """
-    services_config = _load_services_config()
-    services = services_config.get('services', {})
-    service_config = services.get(service_name, {})
+    try:
+        services_config = _load_services_config()
+        if services_config:
+            services = services_config.get('services', {})
+            service_config = services.get(service_name, {})
+            app_default = service_config.get('default_model')
+            if app_default:
+                logger.debug(f"Using app.yaml default model for {service_name}: {app_default}")
+                return app_default
+    except Exception as e:
+        logger.debug(f"Could not load services config: {e}")
     
-    default_model = service_config.get('default_model')
+    # Fall back to class default or system default
+    if class_default:
+        logger.debug(f"Using class default model for {service_name}: {class_default}")
+        return class_default
     
-    if not default_model:
-        available_services = list(services.keys())
-        raise RuntimeError(
-            f"No default model configured for service '{service_name}'. "
-            f"Available services: {', '.join(available_services) if available_services else 'none'}. "
-            f"Please ensure config/app.yaml contains a 'services.{service_name}.default_model' setting."
-        )
-    
-    return default_model
+    # Final fallback
+    fallback_model = 'gemini-2.5-flash'
+    logger.debug(f"Using fallback default model for {service_name}: {fallback_model}")
+    return fallback_model
 
 
 def get_prompt(service_name: str) -> str:
@@ -76,26 +91,31 @@ def get_prompt(service_name: str) -> str:
         service_name: The service name
         
     Returns:
-        The prompt template string
-        
-    Raises:
-        RuntimeError: If the prompt is not found
+        The prompt template string, or default for services that don't need templates
     """
-    services_config = _load_services_config()
-    services = services_config.get('services', {})
-    service_config = services.get(service_name, {})
+    try:
+        services_config = _load_services_config()
+        if services_config:
+            services = services_config.get('services', {})
+            service_config = services.get(service_name, {})
+            prompt_template = service_config.get('prompt')
+            if prompt_template:
+                logger.debug(f"Using app.yaml prompt template for {service_name}")
+                return prompt_template
+    except Exception as e:
+        logger.debug(f"Could not load prompt template from app.yaml: {e}")
     
-    prompt_template = service_config.get('prompt', '')
+    # For services that don't need templates (like PromptService), return a pass-through template
+    if service_name == 'prompt':
+        logger.debug(f"Using default pass-through template for {service_name}")
+        return '{user_input}'  # Simple pass-through for generic prompts
     
-    if not prompt_template:
-        available_services = list(services.keys())
-        raise RuntimeError(
-            f"Prompt template for service '{service_name}' not found. "
-            f"Available services: {', '.join(available_services) if available_services else 'none'}. "
-            f"Please ensure config/app.yaml contains a 'services.{service_name}.prompt' setting."
-        )
-    
-    return prompt_template
+    # For other services, this is an error
+    logger.error(f"No prompt template found for service {service_name}")
+    raise RuntimeError(
+        f"Prompt template for service '{service_name}' not found. "
+        f"Please ensure config/app.yaml contains a 'services.{service_name}.prompt' setting."
+    )
 
 
 def get_service_config(service_name: str) -> dict:
@@ -168,6 +188,7 @@ class ModelBasedService:
     service_name: str  # Must be defined by subclasses
     operation: str  # Must be defined by subclasses
     schema_name: str  # Must be defined by subclasses
+    default_model: str = None  # Optional class-level default model
     interface_type: str = "service"  # Interface type for test data 
     
     def __init__(self, model_override: Optional[str] = None):
@@ -191,12 +212,10 @@ class ModelBasedService:
             self.model_name = model_override
             logger.debug(f"Using model override: {model_override}")
         else:
-            try:
-                self.model_name = get_service_default_model(self.service_name)
-                logger.debug(f"Using service default model: {self.model_name}")
-            except Exception as e:
-                logger.error(f"Failed to get default model for service {self.service_name}: {e}")
-                raise
+            # Pass class default to the resolution function
+            class_default = getattr(self, 'default_model', None)
+            self.model_name = get_service_default_model(self.service_name, class_default)
+            logger.debug(f"Using resolved default model: {self.model_name}")
         
         # Initialize the AI client based on provider configuration
         self._init_ai_client()

@@ -39,7 +39,8 @@ def _load_cli_config() -> Dict[str, Any]:
         with open(cli_config_path, 'r') as f:
             config = yaml.safe_load(f)
         logger.debug(f"Successfully loaded config: {config}")
-        return config.get('tasks', {})
+        tasks = config.get('tasks', {}) or {}
+        return tasks
     except Exception as e:
         logger.warning(f"Could not load cli.yaml: {e}")
         return {}
