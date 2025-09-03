@@ -10,6 +10,26 @@ from multi_eden.build.tasks.config.decorators import requires_config_env
 from multi_eden.build.secrets.interface import PassphraseRequiredException, InvalidPassphraseException
 
 
+def _call_manager_method(operation_name, method_name):
+    """Helper to call a manager method with no arguments and handle unsupported providers."""
+    from multi_eden.build.secrets.factory import get_secrets_manager
+    from multi_eden.build.secrets.secret_utils import create_unsupported_provider_response
+    
+    manager = get_secrets_manager()
+    
+    if not hasattr(manager, method_name):
+        response = create_unsupported_provider_response(operation_name, manager.manager_type)
+        print(response.model_dump_json(indent=2, exclude_none=True))
+        sys.exit(1)
+    
+    response = getattr(manager, method_name)()
+    
+    print(response.model_dump_json(indent=2, exclude_none=True))
+    
+    if not response.meta.success:
+        sys.exit(1)
+
+
 
 
 
@@ -141,27 +161,30 @@ def delete(ctx, secret_name, config_env=None, yes=False, passphrase=None, quiet=
 
 
 @task(help={
-    'output_dir': 'Output directory for downloaded secrets (default: current directory)',
+    'local_repo_folder': 'Local repository folder where secrets will be saved',
     'config_env': 'Configuration environment to use (e.g., dev, local)',
     'passphrase': 'Passphrase for encrypted operations',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging'
 })
 @requires_config_env
-def download(ctx, config_env=None, output_dir='.', passphrase=None, quiet=False, debug=False):
+def download(ctx, local_repo_folder, config_env=None, passphrase=None, quiet=False, debug=False):
     """
     Download secrets from the configured store to local encrypted files.
     
-    Creates .secrets/[env-name] file in the output directory with all secrets
+    Creates .secrets file in the specified local repository folder with all secrets
     from the specified environment's secret store.
     
+    Args:
+        local_repo_folder: Path to the local repository folder where secrets will be saved
+    
     Examples:
-        invoke secrets download --config-env=dev
-        invoke secrets download --config-env=prod --output-dir=/path/to/backup
+        invoke secrets download /path/to/repo --config-env=dev
+        invoke secrets download /path/to/backup --config-env=prod --passphrase=my-passphrase
     """
     from multi_eden.build.secrets.secret_utils import download_secrets_operation
     
-    response = download_secrets_operation(output_dir, config_env, passphrase=passphrase)
+    response = download_secrets_operation(local_repo_folder, config_env, passphrase=passphrase)
     
     print(response.model_dump_json(indent=2, exclude_none=True))
     
@@ -182,8 +205,7 @@ def get_cached_key(c, config_env=None, quiet=False, debug=False):
     
     manager = get_secrets_manager()
     
-    # Only works with local manager
-    if manager.manager_type != "local":
+    if not hasattr(manager, 'get_cached_key'):
         response = create_unsupported_provider_response("get-cached-key", manager.manager_type)
         print(response.model_dump_json(indent=2, exclude_none=True))
         sys.exit(1)
@@ -291,3 +313,14 @@ def clear(c, force=False, config_env=None, quiet=False, debug=False):
     
     if not response.meta.success:
         sys.exit(1)
+
+
+@task
+def clear_cached_key(ctx, quiet=False, debug=False):
+    """
+    Clear the cached encryption key for local secrets.
+    
+    This will require providing a passphrase for subsequent operations
+    until a new cached key is set.
+    """
+    _call_manager_method("clear-cached-key", "clear_cached_key")

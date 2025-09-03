@@ -113,11 +113,21 @@ class LocalSecretsManager(SecretsManager):
     
     def __init__(self):
         """Initialize local secrets manager."""
-        pass
+        self._repo_folder_override: Optional[Path] = None
         
+    def set_repo_folder(self, folder_path: str) -> None:
+        """Set a custom repository folder path override.
+        
+        Args:
+            folder_path: Path to the folder where secrets should be stored
+        """
+        self._repo_folder_override = Path(folder_path)
     
     def get_secrets_file_path(self) -> Path:
-        """Get the secrets file path from environment or default."""
+        """Get the secrets file path from override, environment, or default."""
+        if self._repo_folder_override:
+            return self._repo_folder_override / self.DEFAULT_SECRETS_FILENAME
+        
         secrets_file_path = os.getenv(self.ENV_SECRETS_REPO, self.DEFAULT_SECRETS_FILENAME)
         return Path(secrets_file_path)
     
@@ -482,20 +492,16 @@ class LocalSecretsManager(SecretsManager):
                 secret=None
             )
         
-        # Create secret hash
-        import hashlib
-        secret_hash = hashlib.sha256(secret_def.value.encode()).hexdigest()[:16]
-        
         return GetSecretResponse(
             meta=SecretsManagerMetaResponse(
                 success=True,
                 provider=self.manager_type,
                 error=None
             ),
-            secret=SecretInfo(
+            secret=SecretInfo.create(
                 name=secret_name,
-                value=secret_def.value if show else None,
-                hash=secret_hash
+                secret_value=secret_def.value,
+                show=show
             )
         )
     
@@ -520,15 +526,17 @@ class LocalSecretsManager(SecretsManager):
         success = self._save_secrets(secrets_manifest, passphrase)
         
         if success:
-            import hashlib
-            secret_hash = hashlib.sha256(secret_value.encode()).hexdigest()[:16]
             return SetSecretResponse(
                 meta=SecretsManagerMetaResponse(
                     success=True,
                     provider=self.manager_type,
                     operation="set"
                 ),
-                secret=SecretInfo(name=secret_name, value=None, hash=secret_hash)
+                secret=SecretInfo.create(
+                    name=secret_name,
+                    secret_value=secret_value,
+                    show=False
+                )
             )
         else:
             return SetSecretResponse(
@@ -791,6 +799,51 @@ class LocalSecretsManager(SecretsManager):
                     error=ErrorInfo(code="UNKNOWN_ERROR", message=str(e))
                 ),
                 cleared_count=0
+            )
+
+    def clear_cached_key(self) -> 'GetCachedKeyResponse':
+        """Clear the cached encryption key.
+        
+        Returns:
+            GetCachedKeyResponse with meta indicating success/failure
+        """
+        try:
+            cached_key_path = self.get_cached_key_file_path()
+            if cached_key_path.exists():
+                cached_key_path.unlink()
+                logger.debug(f"Cleared cached key file: {cached_key_path}")
+                
+                # Also clear in-memory key
+                self._key = None
+                
+                return GetCachedKeyResponse(
+                    meta=SecretsManagerMetaResponse(
+                        success=True,
+                        provider=self.manager_type,
+                        operation="clear_cached_key"
+                    ),
+                    key=None
+                )
+            else:
+                return GetCachedKeyResponse(
+                    meta=SecretsManagerMetaResponse(
+                        success=True,
+                        provider=self.manager_type,
+                        operation="clear_cached_key"
+                    ),
+                    key=None
+                )
+            
+        except Exception as e:
+            logger.error(f"Failed to clear cached key: {e}")
+            return GetCachedKeyResponse(
+                meta=SecretsManagerMetaResponse(
+                    success=False,
+                    provider=self.manager_type,
+                    operation="clear_cached_key",
+                    error=ErrorInfo(code="CLEAR_FAILED", message=str(e))
+                ),
+                key=None
             )
 
     def cleanup(self):

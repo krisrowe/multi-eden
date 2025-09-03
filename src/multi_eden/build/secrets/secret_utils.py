@@ -30,7 +30,7 @@ def create_unsupported_provider_response(operation: str, current_provider: str, 
     
     error_info = ErrorInfo(
         code="UNSUPPORTED_PROVIDER",
-        message=f"{operation} command only works with {supported_provider} provider, current: {current_provider}"
+        message=f"{operation} command is not supported by {current_provider} provider"
     )
     
     meta = SecretsManagerMetaResponse(
@@ -208,19 +208,33 @@ def delete_secret_operation(secret_name: str, confirm: bool = False) -> bool:
 
 
 def download_secrets_operation(output_dir: str, config_env: str, passphrase: Optional[str] = None) -> DownloadSecretsResponse:
-    """Download secrets to a local directory structure.
+    """Download secrets to local storage.
     
     Args:
-        output_dir: Output directory path
-        config_env: Configuration environment name
-        passphrase: Optional passphrase for encrypted operations
+        output_dir: Output directory path where secrets will be saved
+        config_env: Configuration environment name (unused)
+        passphrase: Required passphrase for encrypted operations
         
     Returns:
-        DownloadSecretsResponse with meta, count, and path
+        DownloadSecretsResponse with meta and count
     """
     try:
-        project_id = get_project_id_from_env()
-        manager = get_secrets_manager(project_id)
+        from .factory import get_secrets_manager
+        manager = get_secrets_manager()
+        
+        # Don't allow downloading from local manager (circular)
+        if manager.manager_type == 'local':
+            return DownloadSecretsResponse(
+                meta=SecretsManagerMetaResponse(
+                    success=False,
+                    provider=manager.manager_type,
+                    operation="download",
+                    error=ErrorInfo(code="INVALID_OPERATION", message="Cannot download from local manager")
+                ),
+                count=0
+            )
+        
+
         
         # Get secrets using the manager's list method (returns Pydantic response)
         list_response = manager.list_secrets(passphrase)
@@ -243,63 +257,47 @@ def download_secrets_operation(output_dir: str, config_env: str, passphrase: Opt
                     provider=manager.manager_type,
                     operation="download"
                 ),
-                count=0,
-                path=None
+                count=0
             )
         
-        # Create output directory structure
-        output_path = Path(output_dir) / ".secrets"
-        output_path.mkdir(parents=True, exist_ok=True)
+        # Create a new local secrets manager with custom output path
+        from .local_manager import LocalSecretsManager
+        output_manager = LocalSecretsManager()
+        output_manager.set_repo_folder(output_dir)
         
-        # Download secrets to environment-specific file
-        env_file = output_path / config_env
+        # Set all secrets in the output manager
+        success_count = 0
+        for secret in list_response.manifest.secrets:
+            # Get the actual secret value
+            get_response = manager.get_secret(secret.name, passphrase, show=True)
+            if get_response.meta.success and get_response.secret:
+                set_response = output_manager.set_secret(secret.name, get_response.secret.value, passphrase=passphrase)
+                if not set_response.meta.success:
+                    # Return the actual error from the first failed secret operation
+                    return DownloadSecretsResponse(
+                        meta=SecretsManagerMetaResponse(
+                            success=False,
+                            provider=manager.manager_type,
+                            operation="download",
+                            error=set_response.meta.error
+                        ),
+                        count=success_count
+                    )
+                success_count += 1
         
-        # For local manager, copy the existing file; for others, create new local file
-        if manager.manager_type == 'local':
-            # Copy the existing local secrets file
-            import shutil
-            local_secrets_file = Path('.secrets')
-            if local_secrets_file.exists():
-                shutil.copy2(local_secrets_file, env_file)
-            else:
-                return DownloadSecretsResponse(
-                    meta=SecretsManagerMetaResponse(
-                        success=False,
-                        provider=manager.manager_type,
-                        operation="download",
-                        error=ErrorInfo(code="FILE_NOT_FOUND", message="Local secrets file not found")
-                    ),
-                    count=0
-                )
-        else:
-            # Create a new local secrets manager for the output file
-            from .local_manager import LocalSecretsManager
-            output_manager = LocalSecretsManager(str(env_file))
-            
-            # Set all secrets in the output manager
-            success_count = 0
-            for secret in list_response.manifest.secrets:
-                # Get the actual secret value
-                get_response = manager.get_secret(secret.name, passphrase, show=True)
-                if get_response.meta.success and get_response.secret:
-                    set_response = output_manager.set_secret(secret.name, get_response.secret.value, passphrase)
-                    if set_response.meta.success:
-                        success_count += 1
-            
-            if success_count != secrets_count:
-                return DownloadSecretsResponse(
-                    meta=SecretsManagerMetaResponse(
-                        success=False,
-                        provider=manager.manager_type,
-                        operation="download",
-                        error=ErrorInfo(
-                            code="PARTIAL_DOWNLOAD", 
-                            message=f"Only {success_count}/{secrets_count} secrets downloaded successfully"
-                        )
-                    ),
-                    count=success_count,
-                    path=str(env_file)
-                )
+        if success_count != secrets_count:
+            return DownloadSecretsResponse(
+                meta=SecretsManagerMetaResponse(
+                    success=False,
+                    provider=manager.manager_type,
+                    operation="download",
+                    error=ErrorInfo(
+                        code="PARTIAL_DOWNLOAD", 
+                        message=f"Only {success_count}/{secrets_count} secrets downloaded successfully"
+                    )
+                ),
+                count=success_count
+            )
         
         return DownloadSecretsResponse(
             meta=SecretsManagerMetaResponse(
@@ -307,8 +305,7 @@ def download_secrets_operation(output_dir: str, config_env: str, passphrase: Opt
                 provider=manager.manager_type,
                 operation="download"
             ),
-            count=secrets_count,
-            path=str(env_file)
+            count=secrets_count
         )
         
     except Exception as e:

@@ -76,15 +76,15 @@ def py(ctx, config_env=None, module=None, script=None, code=None, args=""):
         print(f"🐍 Python execution with environment: {config_env}")
         
         repo_root = get_repo_root()
-        core_dir = repo_root / "core"
+        working_dir = repo_root  # Use repo root instead of core directory
         
         # Build and execute command based on mode
         if module:
-            return _execute_module(module, args, core_dir)
+            return _execute_module(module, args, working_dir)
         elif script:
-            return _execute_script(script, args, core_dir)
+            return _execute_script(script, args, working_dir)
         elif code:
-            return _execute_code(code, core_dir)
+            return _execute_code(code, working_dir)
         else:
             print("❌ No execution mode specified")
             return False
@@ -193,13 +193,13 @@ def env(ctx, config_env=None):
         # Display environment variables
         import os
         from ..secrets import secrets_manifest
-        from ..config.env_vars_manifest import env_vars_manifest
+
         
         # Get secret env vars from manifest instead of hardcoding
         secret_env_vars = secrets_manifest.get_env_var_names()
         key_vars = [
-            # Environment variables from manifest
-            *env_vars_manifest.get_env_var_names(),
+            # Key environment variables
+            'PORT', 'APP_ID', 'PROJECT_ID', 'CUSTOM_AUTH_ENABLED', 'STUB_AI', 'STUB_DB',
             'CLOUD_PROJECT_ID'  # Legacy display name for PROJECT_ID
         ] + secret_env_vars
         

@@ -117,14 +117,9 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
             print("💡 Please run 'invoke build' first to create an image.")
             return False
         
-        # Get environment variables from manifest
-        from multi_eden.build.config.env_vars_manifest import env_vars_manifest
-        from multi_eden.build.config.loading import load_env
-        
         # Environment variables are already loaded by the decorator
-        
-        # Get environment variable names from manifest
-        env_var_names = env_vars_manifest.get_env_var_names()
+        # Read PORT directly from environment
+        port = os.environ.get("PORT", "8000")
         
         # Follow Cloud Run conventions: container listens on standard port 8000
         # Cloud Run will set PORT automatically, local Docker should mimic this
@@ -138,14 +133,7 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
             f"-e CONFIG_ENV={config_env}"
         ]
         
-        # Add environment variables from manifest
-        for env_var in env_var_names:
-            if env_var in os.environ:
-                # Override PORT to match container internal port (Cloud Run convention)
-                if env_var == "PORT":
-                    cmd_parts.append(f"-e {env_var}={container_internal_port}")
-                else:
-                    cmd_parts.append(f"-e {env_var}={os.environ[env_var]}")
+
         
         # Add ALL runtime settings environment variables (from settings_manifest.yaml)
         runtime_env_vars = [
@@ -259,9 +247,9 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
             
             # Environment variables are already loaded by the decorator
             
-            # Copy environment variables set by load_env() to our env_vars dict
-            from ..config.env_vars_manifest import env_vars_manifest
-            for env_var_name in env_vars_manifest.get_env_var_names():
+            # Copy key environment variables set by load_env() to our env_vars dict
+            key_env_vars = ["PORT", "APP_ID", "PROJECT_ID", "CUSTOM_AUTH_ENABLED", "STUB_AI", "STUB_DB"]
+            for env_var_name in key_env_vars:
                 if os.environ.get(env_var_name):
                     env_vars[env_var_name] = os.environ[env_var_name]
                     print(f"🔧 {env_var_name}={os.environ[env_var_name]} (from config)")

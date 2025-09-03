@@ -84,16 +84,25 @@ logger = logging.getLogger(__name__)
 _load_env_called = False
 
 
-def _get_secret_from_manager(project_id: str, secret_name: str) -> str:
-    """Load secret from Google Secret Manager."""
+def _get_secret_from_manager(secret_name: str) -> str:
+    """Load secret from configured secrets manager."""
     try:
-        from google.cloud import secretmanager
-        client = secretmanager.SecretManagerServiceClient()
-        secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-        response = client.access_secret_version(request={"name": secret_path})
-        return response.payload.data.decode("UTF-8")
+        from multi_eden.build.secrets.factory import get_secrets_manager
+        secrets_manager = get_secrets_manager()
+        
+        logger.debug(f"Loading secret '{secret_name}' from secrets manager (type: {type(secrets_manager).__name__})")
+
+        # Get the secret using the configured manager
+        response = secrets_manager.get_secret(secret_name, show=True)
+        
+        if response.meta.success and response.secret:
+            return response.secret.value
+        else:
+            error_msg = response.meta.error.message if response.meta.error else "Unknown error"
+            raise ValueError(f"Failed to load secret '{secret_name}': {error_msg}")
+            
     except Exception as e:
-        raise ValueError(f"Failed to load secret '{secret_name}' from Secret Manager: {e}")
+        raise ValueError(f"Failed to load secret '{secret_name}' from secrets manager: {e}")
 
 
 def load_env_dynamic(env_name: Optional[str] = None, test_mode: Optional[str] = None, 
@@ -190,12 +199,8 @@ def load_env_dynamic(env_name: Optional[str] = None, test_mode: Optional[str] = 
             original_source = source
             if isinstance(value, str) and value.startswith('secret:'):
                 secret_name = value[7:]  # Remove 'secret:' prefix
-                if project_id:
-                    value = _get_secret_from_manager(project_id, secret_name)
-                    source = 'secret'  # Change source to indicate it's a secret
-                    logger.debug(f"Loaded secret '{secret_name}' from Secret Manager")
-                else:
-                    raise SecretUnavailableException(secret_name, name)
+                value = _get_secret_from_manager(secret_name)
+                source = 'secret'  # Change source to indicate it's a secret
             
             # Convert value to string for environment variable
             if isinstance(value, bool):
