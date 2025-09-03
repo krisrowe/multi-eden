@@ -33,7 +33,7 @@ def list(ctx, config_env=None, passphrase=None, quiet=False, debug=False):
     manager = get_secrets_manager()
     response = manager.list_secrets(passphrase)
     
-    print(response.model_dump_json(indent=2))
+    print(response.model_dump_json(indent=2, exclude_none=True))
     
     if not response.meta.success:
         sys.exit(1)
@@ -61,22 +61,25 @@ def get(ctx, secret_name, show=False, config_env=None, passphrase=None, quiet=Fa
     manager = get_secrets_manager()
     response = manager.get_secret(secret_name, passphrase, show=show)
     
-    print(response.model_dump_json(indent=2))
+    print(response.model_dump_json(indent=2, exclude_none=True))
     
     if not response.meta.success:
         sys.exit(1)
 
 
-@task(help={
-    'secret_name': 'Name of the secret to set',
-    'secret_value': 'Value to store (will prompt if not provided)',
-    'config_env': 'Configuration environment to use (e.g., dev, local)',
-    'passphrase': 'Passphrase for local secrets (optional, will prompt if not provided)',
-    'quiet': 'Suppress configuration display',
-    'debug': 'Enable debug logging'
-})
+@task(
+    positional=['secret_name', 'secret_value'],
+    help={
+        'secret_name': 'Name of the secret to set',
+        'secret_value': 'Value to store (optional, will prompt if not provided)',
+        'config_env': 'Configuration environment to use (e.g., dev, local)',
+        'passphrase': 'Passphrase for local secrets (optional, will prompt if not provided)',
+        'quiet': 'Suppress configuration display',
+        'debug': 'Enable debug logging'
+    }
+)
 @requires_config_env
-def set(ctx, secret_name, config_env=None, secret_value=None, passphrase=None, quiet=False, debug=False):
+def set(ctx, secret_name, secret_value=None, config_env=None, passphrase=None, quiet=False, debug=False):
     """
     Set a secret value.
     
@@ -96,7 +99,7 @@ def set(ctx, secret_name, config_env=None, secret_value=None, passphrase=None, q
     manager = get_secrets_manager()
     response = manager.set_secret(secret_name, secret_value, passphrase)
     
-    print(response.model_dump_json(indent=2))
+    print(response.model_dump_json(indent=2, exclude_none=True))
     
     if not response.meta.success:
         sys.exit(1)
@@ -131,7 +134,7 @@ def delete(ctx, secret_name, config_env=None, yes=False, passphrase=None, quiet=
     manager = get_secrets_manager()
     response = manager.delete_secret(secret_name, passphrase)
     
-    print(response.model_dump_json(indent=2))
+    print(response.model_dump_json(indent=2, exclude_none=True))
     
     if not response.meta.success:
         sys.exit(1)
@@ -160,7 +163,7 @@ def download(ctx, config_env=None, output_dir='.', passphrase=None, quiet=False,
     
     response = download_secrets_operation(output_dir, config_env, passphrase=passphrase)
     
-    print(response.model_dump_json(indent=2))
+    print(response.model_dump_json(indent=2, exclude_none=True))
     
     if not response.meta.success:
         sys.exit(1)
@@ -182,12 +185,12 @@ def get_cached_key(c, config_env=None, quiet=False, debug=False):
     # Only works with local manager
     if manager.manager_type != "local":
         response = create_unsupported_provider_response("get-cached-key", manager.manager_type)
-        print(response.model_dump_json(indent=2))
+        print(response.model_dump_json(indent=2, exclude_none=True))
         sys.exit(1)
     
     response = manager.get_cached_key()
     
-    print(response.model_dump_json(indent=2))
+    print(response.model_dump_json(indent=2, exclude_none=True))
     
     # get-cached-key always succeeds - it's just reporting status
     # Only exit with error code for actual errors (not KEY_NOT_SET)
@@ -212,12 +215,12 @@ def set_cached_key(c, passphrase, config_env=None, quiet=False, debug=False):
     # Only works with local manager
     if manager.manager_type != "local":
         response = create_unsupported_provider_response("set-cached-key", manager.manager_type)
-        print(response.model_dump_json(indent=2))
+        print(response.model_dump_json(indent=2, exclude_none=True))
         sys.exit(1)
     
     response = manager.set_cached_key(passphrase)
     
-    print(response.model_dump_json(indent=2))
+    print(response.model_dump_json(indent=2, exclude_none=True))
     
     if not response.meta.success:
         sys.exit(1)
@@ -240,12 +243,12 @@ def update_key(c, new_passphrase, config_env=None, quiet=False, debug=False):
     # Only works with local manager
     if manager.manager_type != "local":
         response = create_unsupported_provider_response("update-key", manager.manager_type)
-        print(response.model_dump_json(indent=2))
+        print(response.model_dump_json(indent=2, exclude_none=True))
         sys.exit(1)
     
     response = manager.update_encryption_key(new_passphrase)
     
-    print(response.model_dump_json(indent=2))
+    print(response.model_dump_json(indent=2, exclude_none=True))
     
     if not response.meta.success:
         sys.exit(1)
@@ -284,7 +287,7 @@ def clear(c, force=False, config_env=None, quiet=False, debug=False):
     
     response = manager.clear_all_secrets()
     
-    print(response.model_dump_json(indent=2))
+    print(response.model_dump_json(indent=2, exclude_none=True))
     
     if not response.meta.success:
         sys.exit(1)
