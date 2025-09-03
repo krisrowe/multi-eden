@@ -36,8 +36,6 @@ environments:
       custom_auth_enabled: true
       stub_ai: false     # ai_provider: "real"
       stub_db: false     # data_provider: "firestore"
-      # No local: true - requires project_id for Secret Manager
-      project_id: "ai-food-log-dev"  # Enable Secret Manager
       GEMINI_API_KEY: "secret:gemini-api-key"
       JWT_SECRET_KEY: "secret:jwt-secret-key"
       ALLOWED_USER_EMAILS: "secret:allowed-user-emails"
