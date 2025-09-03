@@ -26,7 +26,6 @@ modes:
       stub_ai: false
       stub_db: true
       test_api_in_memory: true
-      local: true
       custom_auth_enabled: true
       GEMINI_API_KEY: "secret:gemini-api-key"
       JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"
