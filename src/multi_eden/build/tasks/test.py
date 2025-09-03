@@ -16,6 +16,10 @@ from multi_eden.build.tasks.config.decorators import requires_config_env
 import os
 import logging
 
+from multi_eden.run.config.logging import bootstrap_logging
+
+# Bootstrap logging to respect LOG_LEVEL environment variable
+bootstrap_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -175,10 +179,10 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     venv_pytest = Path.cwd() / "venv" / "bin" / "pytest"
     if venv_pytest.exists():
         pytest_executable = str(venv_pytest)
-        print(f"🐍 Using virtual environment pytest: {pytest_executable}")
+        logger.debug(f"🐍 Using virtual environment pytest: {pytest_executable}")
     else:
         pytest_executable = "python"
-        print(f"🐍 Using system pytest: {pytest_executable}")
+        logger.debug(f"🐍 Using system pytest: {pytest_executable}")
     
     # Build pytest command
     if pytest_executable != "python":
@@ -195,7 +199,7 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     # Filter out integration tests if omit-integration is true
     if os.environ.get('TEST_OMIT_INTEGRATION', '').lower() == 'true':
         cmd.extend(["-m", "not integration"])
-        print(f"🔒 Filtering out integration tests for {suite} test suite (omit-integration: true)")
+        logger.debug(f"🔒 Filtering out integration tests for {suite} test suite (omit-integration: true)")
     
     if config_env:
         cmd.extend(["--config-env", config_env])
@@ -209,7 +213,6 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
         print(f"🎯 Filtering tests by name: {test_name}")
     
     # Add test paths (filter out non-existent ones)
-    logger = logging.getLogger(__name__)
     valid_test_paths = []
     for path in test_paths:
         test_path = Path.cwd() / "tests" / path
@@ -224,7 +227,7 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     
     cmd.extend(valid_test_paths)
     
-    print(f"🔍 Including pytest {' '.join(cmd[4:])}")    
+    logger.debug(f"🔍 Including pytest {' '.join(cmd[4:])}")
     
     # Show runtime configuration that tests will use (unless quiet)
     if not quiet:
@@ -233,7 +236,7 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     
     # Run pytest directly in the same process (not subprocess)
     # This ensures environment variables set by load_env() are available
-    print(f"🧪 Running {suite} tests...")
+    logger.debug(f"🧪 Running {suite} tests...")
     
     import pytest
     
@@ -381,15 +384,10 @@ def _show_secrets_configuration(config_env):
 
 def _show_all_configuration_tables(config_env):
     """Show all 4 configuration tables consistently for both normal and --show-config runs."""
-    try:
-        # Table 1: TESTING CONFIGURATION is already shown by the decorator
-        
-        # Table 2: ENVIRONMENT VARIABLES (from loading.py)
-        # This is already displayed by load_env() in loading.py
-        
-        # Table 3: SECRETS CONFIGURATION
-        _show_secrets_configuration(config_env)
-        
-    except Exception as e:
-        print(f"⚠️  Could not display configuration tables: {e}")
-        print()
+    # Table 1: TESTING CONFIGURATION is already shown by the decorator
+    
+    # Table 2: ENVIRONMENT VARIABLES (from loading.py)
+    # This is already displayed by load_env() in loading.py
+    
+    # Table 3: SECRETS CONFIGURATION
+    _show_secrets_configuration(config_env)

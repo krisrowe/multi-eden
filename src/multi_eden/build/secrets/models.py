@@ -19,6 +19,16 @@ class SecretsManifest(BaseModel):
     secrets: List[SecretDefinition] = []
 
 
+class SecretNameInfo(BaseModel):
+    """Secret name information for listing (no values)."""
+    name: str
+
+
+class SecretsListManifest(BaseModel):
+    """Container for secret names only (for listing)."""
+    secrets: List[SecretNameInfo] = []
+
+
 # Response Meta Models
 class ErrorInfo(BaseModel):
     """Error information in responses."""
@@ -70,7 +80,7 @@ class DeleteSecretResponse(BaseModel):
 class ListSecretsResponse(BaseModel):
     """Response from listing secrets."""
     meta: SecretsManagerMetaResponse
-    manifest: Optional[SecretsManifest] = None
+    manifest: Optional[SecretsListManifest] = None
 
 
 class GetCachedKeyResponse(BaseModel):

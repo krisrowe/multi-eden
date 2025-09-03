@@ -256,14 +256,14 @@ def display_env_vars_dynamic(processed_vars, failed_vars, test_mode, env_name, e
     """Display the environment variables table for dynamic loading."""
     
     # Configuration source table
-    print("\n" + "=" * 50)
-    print("🔧 CONFIGURATION SOURCE")
-    print("=" * 50)
+    print("\n" + "=" * 50, file=sys.stderr)
+    print("🔧 CONFIGURATION SOURCE", file=sys.stderr)
+    print("=" * 50, file=sys.stderr)
     
     if test_mode:
-        print(f"Test Suite: {test_mode}")
-        print(f"  └─ As per: invoke test <suite>")
-        print(f"  └─ Source: tests.yaml")
+        print(f"Test Suite: {test_mode}", file=sys.stderr)
+        print(f"  └─ As per: invoke test <suite>", file=sys.stderr)
+        print(f"  └─ Source: tests.yaml", file=sys.stderr)
         
         # Get test paths if available
         try:
@@ -271,23 +271,21 @@ def display_env_vars_dynamic(processed_vars, failed_vars, test_mode, env_name, e
             if hasattr(test_config, 'tests') and isinstance(test_config.tests, dict):
                 test_paths = test_config.tests.get('paths', [])
                 if test_paths:
-                    print(f"  └─ Test Paths: {', '.join(test_paths)}")
+                    print(f"  └─ Test Paths: {', '.join(test_paths)}", file=sys.stderr)
         except:
             pass
     
     if env_name:
-        print(f"Config Environment: {env_name}")
+        print(f"Config Environment: {env_name}", file=sys.stderr)
     else:
-        print("Config Environment: (none)")
+        print("Config Environment: (none)", file=sys.stderr)
     
-    print("=" * 50)
+    print("=" * 50, file=sys.stderr)
     
     # Environment variables table
-    print("\n" + "=" * 76)
-    print("🔧 ENVIRONMENT VARIABLES")
-    print("=" * 76)
-    print(f"{'VARIABLE':<25} {'VALUE':<25} {'SOURCE':<25}")
-    print("-" * 76)
+    print("\n" + "=" * 76, file=sys.stderr)
+    print("🔧 ENVIRONMENT VARIABLES", file=sys.stderr)
+    print("=" * 76, file=sys.stderr)
     
     # Sort variables by name for consistent display
     processed_vars.sort(key=lambda x: x[0])
@@ -311,16 +309,22 @@ def display_env_vars_dynamic(processed_vars, failed_vars, test_mode, env_name, e
         else:
             all_vars.append((name, "❌", "(error)", "unknown"))
     
-    # Sort all variables by name and display
-    all_vars.sort(key=lambda x: x[0])
-    for name, status, value, source in all_vars:
-        print(f"{status} {name:<23} {value:<24} {source:<25}")
+    # Show column headers and rows only if there are variables
+    if all_vars:
+        print(f"{'VARIABLE':<25} {'VALUE':<25} {'SOURCE':<25}", file=sys.stderr)
+        print("-" * 76, file=sys.stderr)
+        
+        # Sort all variables by name and display
+        all_vars.sort(key=lambda x: x[0])
+        for name, status, value, source in all_vars:
+            print(f"{status} {name:<23} {value:<24} {source:<25}", file=sys.stderr)
+        
+        print("-" * 76, file=sys.stderr)
     
-    print("-" * 76)
     total_vars = len(processed_vars) + len(failed_vars)
     status = "PASS" if len(failed_vars) == 0 else "FAIL"
-    print(f"📊 VALIDATION: {len(processed_vars)} of {total_vars} variables loaded - {status}")
-    print("=" * 76)
+    print(f"📊 VALIDATION: {len(processed_vars)} of {total_vars} variables loaded - {status}", file=sys.stderr)
+    print("=" * 76, file=sys.stderr)
 
 
 # Alias the new dynamic function as the main load_env function

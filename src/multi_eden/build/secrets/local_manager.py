@@ -296,7 +296,6 @@ class LocalSecretsManager(SecretsManager):
                 temp_key_path = self.get_cached_key_file_path()
                 self._cache_key(new_key, temp_key_path)
                 
-                logger.info("Successfully updated encryption key and re-encrypted all secrets")
                 
         except InvalidToken:
             raise InvalidPassphraseException("Cached key is invalid for existing secrets")
@@ -552,9 +551,16 @@ class LocalSecretsManager(SecretsManager):
         Returns:
             ListSecretsResponse
         """
+        from .models import SecretsListManifest, SecretNameInfo
+        
+        # Convert full manifest to names-only manifest
+        names_only_manifest = SecretsListManifest(
+            secrets=[SecretNameInfo(name=secret.name) for secret in secrets_manifest.secrets]
+        )
+        
         return ListSecretsResponse(
             meta=SecretsManagerMetaResponse(success=True, provider=self.manager_type),
-            manifest=secrets_manifest
+            manifest=names_only_manifest
         )
     
     @loads_secrets(DeleteSecretResponse)
@@ -713,7 +719,6 @@ class LocalSecretsManager(SecretsManager):
                     provider=self.manager_type,
                     operation="update_key"
                 ),
-                message="Successfully updated encryption key and re-encrypted all secrets",
                 key=CachedKeyInfo(hash=key_hash)
             )
             

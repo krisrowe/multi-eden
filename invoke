@@ -57,7 +57,6 @@ if [ ! -d "venv" ]; then
     setup_venv
 else
     # Activate existing virtual environment
-    echo "🔧 Activating existing virtual environment..." >&2
     source venv/bin/activate
 fi
 
@@ -67,8 +66,5 @@ if [ -z "$VIRTUAL_ENV" ]; then
     exit 1
 fi
 
-echo "✅ Virtual environment activated: $VIRTUAL_ENV" >&2
-
 # Run the invoke command with all arguments passed through
-echo "🚀 Running: invoke $*" >&2
 exec invoke "$@"
