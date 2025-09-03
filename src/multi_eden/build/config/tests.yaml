@@ -6,7 +6,7 @@ modes:
     description: "Unit tests with mocked dependencies"
     tests:
       paths: ["unit", "providers", "api"]
-    environment:
+    env:
       # Test mode provides complete config - no env needed
       stub_ai: true
       stub_db: true
@@ -21,7 +21,7 @@ modes:
     description: "Integration tests with real AI API calls"
     tests:
       paths: ["ai"]
-    environment:
+    env:
       # AI tests need real secrets for API calls
       stub_ai: false
       stub_db: true
@@ -37,7 +37,7 @@ modes:
     tests:
       paths: ["db", "providers"]
     default-env: "db-testing"
-    environment:
+    env:
       test_api_in_memory: true
     
   api:
@@ -45,5 +45,5 @@ modes:
     tests:
       paths: ["api", "providers"]
     default-env: "local"
-    environment:
+    env:
       test_api_in_memory: false

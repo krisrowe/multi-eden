@@ -1,0 +1,59 @@
+# Dynamic Environment Loading Configuration
+# 
+# This file controls the order and sources for loading environment variables.
+# Each layer is processed in order, with later layers overwriting earlier ones.
+# 
+# Format:
+# - file: Path to YAML file (relative to SDK root or absolute)
+# - path: YAML path within the file to the environment variables
+# - condition: Optional condition for when to load this layer
+# - priority: Optional priority (higher numbers = higher priority, defaults to order)
+
+layers:
+  # Base configuration - lowest priority
+  - name: "base-config"
+    file: "environments.yaml"
+    path: "environments.base.env"
+    description: "Base environment configuration from SDK"
+
+  # Environment-specific configuration
+  - name: "env-config"
+    file: "environments.yaml"
+    path: "environments.{env_name}.env"
+    condition: "env_name is not None"
+    description: "Environment-specific configuration (local, dev, prod, etc.)"
+
+  # App-specific environment overrides
+  - name: "app-env-config"
+    file: "{cwd}/config/environments.yaml"
+    path: "environments.{env_name}.env"
+    condition: "env_name is not None"
+    description: "App-specific environment overrides"
+
+  # Test mode configuration
+  - name: "test-config"
+    file: "tests.yaml"
+    path: "modes.{test_mode}.env"
+    condition: "test_mode is not None"
+    description: "Test mode specific configuration"
+
+  # Task-specific configuration
+  - name: "task-config"
+    file: "tasks.yaml"
+    path: "tasks.{task_name}.env"
+    condition: "task_name is not None"
+    description: "Task-specific environment configuration"
+
+# Global settings
+settings:
+  # Whether to allow environment variables to override loaded values
+  env_var_override: true
+  
+  # Whether to fail on missing required secrets
+  fail_on_missing_secrets: true
+  
+  # Default secret manager to use
+  default_secret_manager: "local"
+  
+  # Whether to display loaded variables
+  display_loaded_vars: true

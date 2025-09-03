@@ -5,7 +5,7 @@
 environments:
   # Local testing - out-of-process API (port determined by task: server=8000, docker=8001)
   local:
-    environment:
+    env:
       custom_auth_enabled: true
       stub_ai: true
       stub_db: true
@@ -18,7 +18,7 @@ environments:
 
   # Local Docker - out-of-process API in Docker container on port 8001
   local-docker:
-    environment:
+    env:
       custom_auth_enabled: true
       stub_ai: true
       stub_db: true
@@ -32,7 +32,7 @@ environments:
   # Cloud environment templates (project_id must be set by app config)
   # Development cloud environment
   dev:
-    environment:
+    env:
       custom_auth_enabled: true
       stub_ai: false     # ai_provider: "real"
       stub_db: false     # data_provider: "firestore"
@@ -43,7 +43,8 @@ environments:
     
   # Production cloud environment
   prod:
-    custom_auth_enabled: true
-    stub_ai: false     # ai_provider: "real"
-    stub_db: false     # data_provider: "firestore"
-    # No local: true - requires project_id for Secret Manager
+    env:
+      custom_auth_enabled: true
+      stub_ai: false     # ai_provider: "real"
+      stub_db: false     # data_provider: "firestore"
+      # No local: true - requires project_id for Secret Manager

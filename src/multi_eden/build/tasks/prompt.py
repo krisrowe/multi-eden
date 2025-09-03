@@ -8,7 +8,7 @@ environment configuration.
 import sys
 from pathlib import Path
 from invoke import task
-from multi_eden.build.config.loading import load_env_dynamic
+from multi_eden.build.config.loading import load_env as load_env_dynamic
 
 
 @task(help={

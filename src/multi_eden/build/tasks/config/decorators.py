@@ -11,7 +11,7 @@ import os
 from typing import Optional, Callable, Any, Tuple
 from .setup import get_task_default_env, get_task_vars
 from pathlib import Path
-from multi_eden.build.config.loading import load_env_dynamic
+from multi_eden.build.config.loading import load_env as load_env_dynamic
 
 
 def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict, 
@@ -93,7 +93,7 @@ def resolve_config_env(config_env: Optional[str], args: Tuple, kwargs: dict,
     return env_name, selection_method
 
 
-def requires_config_env(func: Callable = None, *, post_load_callback=None) -> Callable:
+def requires_config_env(func: Callable = None, *, post_load_callback=None, dynamics=None) -> Callable:
     """
     Decorator that requires a configuration environment to be set up.
     
@@ -115,10 +115,10 @@ def requires_config_env(func: Callable = None, *, post_load_callback=None) -> Ca
             pass
     """
     
-    # Handle both @requires_config_env and @requires_config_env(post_load_callback=...)
+    # Handle both @requires_config_env and @requires_config_env(post_load_callback=..., dynamics=...)
     if func is None:
-        # Called with arguments: @requires_config_env(post_load_callback=...)
-        return lambda f: requires_config_env(f, post_load_callback=post_load_callback)
+        # Called with arguments: @requires_config_env(post_load_callback=..., dynamics=...)
+        return lambda f: requires_config_env(f, post_load_callback=post_load_callback, dynamics=dynamics)
     
     @functools.wraps(func)
     def wrapper(ctx, *args, **kwargs):
@@ -184,11 +184,11 @@ def requires_config_env(func: Callable = None, *, post_load_callback=None) -> Ca
                 else:
                     env_source = f"task {task_name} vars: {vars_config}"
                 
-                load_env_dynamic(
+                from multi_eden.build.config.loading import load_env
+                load_env(
                     env_name=config_env,  # Pass through the original config_env (may be None)
                     test_mode=test_mode,  # Pass test_mode for test tasks
-                    post_load_callback=post_load_callback  # Pass callback if provided
-                    # Note: env_var_names and env_source not supported in new system
+                    dynamics=dynamics  # Pass dynamics if provided
                 )
             except Exception as e:
                 print(f"❌ Failed to load environment variables for task '{task_name}': {e}", file=sys.stderr)
@@ -197,7 +197,8 @@ def requires_config_env(func: Callable = None, *, post_load_callback=None) -> Ca
             # For tasks without vars config, use the original behavior but pass through config_env
             # Let load_env determine if --config-env is required
             try:
-                load_env_dynamic(env_name=config_env, test_mode=test_mode, quiet=quiet, post_load_callback=post_load_callback)
+                from multi_eden.build.config.loading import load_env
+                load_env(env_name=config_env, test_mode=test_mode, quiet=quiet, dynamics=dynamics)
             except Exception as e:
                 error_msg = f"Failed to load configuration environment: {e}"
                 print(f"❌ {error_msg}")

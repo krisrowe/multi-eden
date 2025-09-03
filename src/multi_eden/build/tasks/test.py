@@ -23,15 +23,15 @@ bootstrap_logging()
 logger = logging.getLogger(__name__)
 
 
-def _inject_test_api_url_callback():
-    """Callback to inject TEST_API_URL when needed for API tests.
+def get_test_api_url():
+    """Get the test API URL based on current environment configuration.
     
-    Only injects when:
+    Only returns a URL when:
     - TEST_API_IN_MEMORY=false (API tests need external server)
     - TEST_API_URL is not already set (don't override explicit values)
     
     Returns:
-        list: List of (var_name, var_value, var_source) tuples to inject
+        list: List of (var_name, var_value, var_source) tuples
     """
     # Only inject if API tests need external server
     if os.getenv('TEST_API_IN_MEMORY', '').lower() != 'false':
@@ -103,7 +103,11 @@ def _get_test_paths(suite: str) -> list:
     'show_config': 'Show detailed configuration including partial secret values',
     'quiet': 'Suppress configuration display (show only test results)'
 })
-@requires_config_env(post_load_callback=_inject_test_api_url_callback)
+@requires_config_env(
+    dynamics={
+        'TEST_API_URL': get_test_api_url
+    }
+)
 def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config=False, quiet=False):
     """
     Run tests for a specific suite.

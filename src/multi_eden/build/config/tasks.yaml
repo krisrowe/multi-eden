@@ -39,7 +39,9 @@ tasks:
   
   # Test tasks can specify their own defaults
   test:
-    vars: "auth,stub,test"
+    env:
+      # Test-specific environment settings
+      TEST_API_IN_MEMORY: false
   
   # AI tasks that need GEMINI_API_KEY and stub configuration
   analyze:
@@ -57,4 +59,6 @@ tasks:
   
   # New prompt task for AI interactions
   prompt:
-    vars: "GEMINI_API_KEY"
+    env:
+      # Task only needs GEMINI_API_KEY for AI interactions
+      GEMINI_API_KEY: "secret:gemini-api-key"
