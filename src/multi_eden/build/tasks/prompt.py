@@ -15,10 +15,11 @@ from multi_eden.build.config.loading import load_env_dynamic
     'prompt_text': 'The prompt to send to the AI model',
     'config_env': 'Configuration environment to use (e.g., dev, local)',
     'model': 'AI model to use (default: gemini-2.5-flash)',
+    'grounding': 'Enable Google Search grounding for the prompt',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging (sets LOG_LEVEL=DEBUG)'
 })
-def prompt(ctx, prompt_text, config_env=None, model='gemini-2.5-flash', quiet=False, debug=False):
+def prompt(ctx, prompt_text, config_env=None, model='gemini-2.5-flash', grounding=False, quiet=False, debug=False):
     """
     Send a prompt to an AI model.
     
@@ -39,8 +40,8 @@ def prompt(ctx, prompt_text, config_env=None, model='gemini-2.5-flash', quiet=Fa
     try:
         from multi_eden.run.ai.prompt_service import PromptService
         
-        # Create prompt service with model override
-        service = PromptService(model_override=model)
+        # Create prompt service with model override and grounding
+        service = PromptService(model_override=model, enable_grounding=grounding)
         
         # Send the prompt
         response = service.process(prompt_text)

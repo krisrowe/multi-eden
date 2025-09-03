@@ -62,7 +62,7 @@ class ModelClient(ABC):
         return self._schema
     
     def process_prompt(self, user_prompt: str, function_declarations: Optional[List[Dict[str, Any]]] = None, 
-                      callback: Optional[Callable] = None, **kwargs) -> Any:
+                      callback: Optional[Callable] = None, enable_grounding: bool = False, **kwargs) -> Any:
         """
         Process a prompt by injecting it into the template and delegating to child class.
         
@@ -70,6 +70,7 @@ class ModelClient(ABC):
             user_prompt: The user's original input prompt
             function_declarations: Optional function declarations for structured output
             callback: Optional callback function to process results
+            enable_grounding: Whether to enable Google Search grounding
             **kwargs: Additional arguments passed to child class
             
         Returns:
@@ -89,11 +90,11 @@ class ModelClient(ABC):
             logger.debug(f"No prompt template available, using user prompt directly: {user_prompt}")
         
         # Delegate to child class implementation
-        return self._process_prompt(formatted_prompt, function_declarations, callback, **kwargs)
+        return self._process_prompt(formatted_prompt, function_declarations, callback, enable_grounding, **kwargs)
     
     @abstractmethod
     def _process_prompt(self, formatted_prompt: str, function_declarations: Optional[List[Dict[str, Any]]] = None,
-                       callback: Optional[Callable] = None, **kwargs) -> Any:
+                       callback: Optional[Callable] = None, enable_grounding: bool = False, **kwargs) -> Any:
         """
         Process the formatted prompt. Override this method in child classes.
         
@@ -101,6 +102,7 @@ class ModelClient(ABC):
             formatted_prompt: The prompt with user input injected into the template
             function_declarations: Optional function declarations for structured output
             callback: Optional callback function to process results
+            enable_grounding: Whether to enable Google Search grounding
             **kwargs: Additional arguments
             
         Returns:

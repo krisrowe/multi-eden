@@ -51,8 +51,16 @@ class MockClient(ModelClient):
         return None
     
     def _process_prompt(self, formatted_prompt: str, function_declarations: Optional[List[Dict[str, Any]]] = None,
-                       callback: Optional[Callable] = None, **kwargs) -> Any:
-        """Process the formatted prompt and return mock response from test data."""
+                       callback: Optional[Callable] = None, enable_grounding: bool = False, **kwargs) -> Any:
+        """Process the formatted prompt and return mock response from test data.
+        
+        Args:
+            formatted_prompt: The prompt with user input injected into the template
+            function_declarations: Optional function declarations for structured output
+            callback: Optional callback function to process results
+            enable_grounding: Whether to enable Google Search grounding (ignored in mock)
+            **kwargs: Additional arguments
+        """
         # Try to get operation from explicit setting or auto-detection
         operation = self.operation or self._get_calling_service_operation()
         logger.debug(f"MockClient processing prompt with operation: {operation}")

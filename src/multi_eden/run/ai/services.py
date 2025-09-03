@@ -118,6 +118,30 @@ def get_prompt(service_name: str) -> str:
     )
 
 
+def get_service_grounding(service_name: str) -> bool:
+    """Get grounding configuration for a service.
+    
+    Args:
+        service_name: The service name
+        
+    Returns:
+        True if grounding is enabled for this service, False otherwise
+    """
+    try:
+        services_config = _load_services_config()
+        if services_config:
+            services = services_config.get('services', {})
+            service_config = services.get(service_name, {})
+            grounding = service_config.get('grounding', False)
+            logger.debug(f"Service {service_name} grounding: {grounding}")
+            return grounding
+    except Exception as e:
+        logger.debug(f"Could not load grounding config from app.yaml: {e}")
+    
+    # Default to False if no configuration found
+    return False
+
+
 def get_service_config(service_name: str) -> dict:
     """Get the complete configuration for a service.
     
@@ -216,6 +240,10 @@ class ModelBasedService:
             class_default = getattr(self, 'default_model', None)
             self.model_name = get_service_default_model(self.service_name, class_default)
             logger.debug(f"Using resolved default model: {self.model_name}")
+        
+        # Get grounding configuration for this service
+        self._enable_grounding = get_service_grounding(self.service_name)
+        logger.debug(f"Service {self.service_name} grounding enabled: {self._enable_grounding}")
         
         # Initialize the AI client based on provider configuration
         self._init_ai_client()
@@ -328,8 +356,8 @@ class ModelBasedService:
         start_time = time.time()
         
         try:
-            # Process the input through the AI client
-            ai_response = self.ai_client.process_prompt(user_input, **kwargs)
+            # Process the input through the AI client with grounding if enabled
+            ai_response = self.ai_client.process_prompt(user_input, enable_grounding=self._enable_grounding, **kwargs)
             
             # Calculate processing time
             processing_time = (time.time() - start_time) * 1000

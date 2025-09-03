@@ -33,17 +33,24 @@ class PromptService(ModelBasedService):
     schema_name = None  # No schema required for generic prompts
     default_model = 'gemini-2.5-flash'  # Class-level default
     
-    def __init__(self, model_override: Optional[str] = None, service_name: str = 'prompt'):
+    def __init__(self, model_override: Optional[str] = None, service_name: str = 'prompt', enable_grounding: Optional[bool] = None):
         """
         Initialize the prompt service.
         
         Args:
             model_override: Optional model name to override the service default
             service_name: Service name to use for configuration lookup (default: 'prompt')
+            enable_grounding: Optional override for grounding (if None, uses service config)
         """
         # Allow service_name to be overridden for flexibility
         self.service_name = service_name
+        self._grounding_override = enable_grounding
         super().__init__(model_override)
+        
+        # Override grounding if explicitly provided
+        if self._grounding_override is not None:
+            self._enable_grounding = self._grounding_override
+            logger.debug(f"PromptService grounding overridden to: {self._enable_grounding}")
     
     def _load_and_set_schema(self):
         """Override to skip schema loading for generic prompts."""

@@ -42,7 +42,7 @@ class GoogleClient(ModelClient):
             raise
     
     def _process_prompt(self, formatted_prompt: str, function_declarations: Optional[List[Dict[str, Any]]] = None,
-                       callback: Optional[Callable] = None, **kwargs) -> Any:
+                       callback: Optional[Callable] = None, enable_grounding: bool = False, **kwargs) -> Any:
         """
         Process the formatted prompt using the real Gemini API.
         
@@ -50,6 +50,7 @@ class GoogleClient(ModelClient):
             formatted_prompt: The prompt with user input injected into the template
             function_declarations: Optional function declarations for structured output
             callback: Optional callback function to process results
+            enable_grounding: Whether to enable Google Search grounding
             **kwargs: Additional arguments
             
         Returns:
@@ -60,6 +61,21 @@ class GoogleClient(ModelClient):
         try:
             # Prepare the generation config
             generation_config = {}
+            tools = []
+            
+            # Add grounding tool if enabled
+            if enable_grounding:
+                try:
+                    from google.genai import types
+                    grounding_tool = types.Tool(
+                        google_search=types.GoogleSearch()
+                    )
+                    tools.append(grounding_tool)
+                    logger.debug("Added Google Search grounding tool")
+                except ImportError:
+                    logger.warning("Google GenAI types not available for grounding, proceeding without grounding")
+                except Exception as e:
+                    logger.warning(f"Failed to set up grounding tool: {e}, proceeding without grounding")
             
             # Handle structured output
             if function_declarations:
@@ -73,11 +89,25 @@ class GoogleClient(ModelClient):
                 generation_config["response_schema"] = self.get_schema()
                 logger.debug(f"Using stored schema for structured output: {type(self.get_schema())}")
             
+            # Prepare the config object
+            config_kwargs = {}
+            if tools:
+                config_kwargs['tools'] = tools
+            if generation_config:
+                config_kwargs.update(generation_config)
+            
+            # Create the config object if we have any configuration
+            if config_kwargs:
+                from google.genai import types
+                config = types.GenerateContentConfig(**config_kwargs)
+            else:
+                config = generation_config if generation_config else None
+            
             # Make the API call
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=formatted_prompt,
-                config=generation_config
+                config=config
             )
             
             logger.debug(f"Gemini API response received successfully")

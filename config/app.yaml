@@ -1,2 +1,13 @@
 # Multi-Eden SDK Test Configuration
 id: "multi-eden-sdk"
+
+# Secrets management configuration
+secrets:
+  # Manager type: 'google' for Google Cloud Secret Manager, 'local' for encrypted local storage
+  manager: "local"  # Use local for SDK testing to avoid GCP dependency
+  
+  # Local manager settings
+  file: ".secrets"  # Path to encrypted secrets file (relative to project root)
+  
+  # Google manager settings (used when manager: "google")
+  # project_id: "your-gcp-project-id"  # Can also be set via top-level project_id
