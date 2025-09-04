@@ -8,6 +8,12 @@ from multi_eden.run.ai.prompt_service import PromptService
 
 API_KEY_ENV_VAR_NAME = "GEMINI_API_KEY"
 
+# Skip all tests in this module if GEMINI_API_KEY is not set
+pytestmark = pytest.mark.skipif(
+    not os.getenv(API_KEY_ENV_VAR_NAME),
+    reason=f"{API_KEY_ENV_VAR_NAME} environment variable not set - skipping AI tests"
+)
+
 class TestAIPrompts:
     """Test AI prompt functionality using PromptService."""
     
@@ -17,10 +23,6 @@ class TestAIPrompts:
         self.default_model = "gemini-2.5-flash"
         self.alt_model = "gemini-2.5-flash-lite"
     
-    @pytest.mark.skipif(
-        not os.getenv(API_KEY_ENV_VAR_NAME),
-        reason=f"{API_KEY_ENV_VAR_NAME} environment variable not set - skipping real API test"
-    )
     @pytest.mark.integration
     def test_math_prompt_predictable_output(self):
         """Test math prompt with predictable integer output."""
@@ -45,10 +47,6 @@ class TestAIPrompts:
         except Exception as e:
             pytest.fail(f"Math prompt test failed: {e}")
     
-    @pytest.mark.skipif(
-        not os.getenv(API_KEY_ENV_VAR_NAME),
-        reason=f"{API_KEY_ENV_VAR_NAME} environment variable not set - skipping real API test"
-    )
     @pytest.mark.integration
     def test_json_prompt_no_schema(self):
         """Test prompt expecting JSON output without formal schema."""
@@ -87,10 +85,6 @@ class TestAIPrompts:
         except Exception as e:
             pytest.fail(f"JSON prompt test failed: {e}")
     
-    @pytest.mark.skipif(
-        not os.getenv(API_KEY_ENV_VAR_NAME),
-        reason=f"{API_KEY_ENV_VAR_NAME} environment variable not set - skipping real API test"
-    )
     @pytest.mark.integration
     def test_json_prompt_with_schema(self):
         """Test prompt with JSON schema supplied."""
@@ -150,10 +144,6 @@ class TestAIPrompts:
         
         self.logger.info("✅ Empty prompt negative test successful")
     
-    @pytest.mark.skipif(
-        not os.getenv(API_KEY_ENV_VAR_NAME),
-        reason=f"{API_KEY_ENV_VAR_NAME} environment variable not set - skipping real API test"
-    )
     @pytest.mark.integration
     def test_default_model_faster_used(self):
         """Test that default model gemini-2.5-flash is used (check meta output)."""
@@ -179,10 +169,6 @@ class TestAIPrompts:
         except Exception as e:
             pytest.fail(f"Default model test failed: {e}")
     
-    @pytest.mark.skipif(
-        not os.getenv(API_KEY_ENV_VAR_NAME),
-        reason=f"{API_KEY_ENV_VAR_NAME} environment variable not set - skipping real API test"
-    )
     @pytest.mark.integration
     def test_alt_model_fastest_used(self):
         """Test that alternative model gemini-2.5-flash-lite was used (check meta output)."""

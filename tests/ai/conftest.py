@@ -5,6 +5,7 @@ This module provides AI test configuration and environment setup.
 """
 
 import os
+import pytest
 from multi_eden.build.config.loading import load_env
 
 
@@ -18,3 +19,5 @@ def pytest_configure(config):
     load_env(test_mode='ai', quiet=True)
     
     # No cleanup needed - process isolation handles it automatically
+
+
