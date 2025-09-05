@@ -9,11 +9,6 @@ from multi_eden.run.ai.prompt_service import PromptService
 
 API_KEY_ENV_VAR_NAME = "GEMINI_API_KEY"
 
-# Skip all tests in this module if GEMINI_API_KEY is not set
-pytestmark = pytest.mark.skipif(
-    not os.getenv(API_KEY_ENV_VAR_NAME),
-    reason=f"{API_KEY_ENV_VAR_NAME} environment variable not set - skipping AI tests"
-)
 
 class TestGeminiClient:
     """Test the Gemini AI client functionality."""
@@ -26,7 +21,6 @@ class TestGeminiClient:
         self.default_model = "gemini-2.5-flash"
         self.alt_model = "gemini-2.5-flash-lite"
     
-    @pytest.mark.integration
     def test_math_prompt_predictable_output(self):
         """Test math prompt with predictable integer output."""
         self.logger.info("Testing math prompt with predictable output")
@@ -50,7 +44,6 @@ class TestGeminiClient:
         except Exception as e:
             pytest.fail(f"Math prompt test failed: {e}")
     
-    @pytest.mark.integration
     def test_json_prompt_no_schema(self):
         """Test prompt expecting JSON output without formal schema."""
         self.logger.info("Testing JSON prompt without formal schema")
@@ -88,7 +81,6 @@ class TestGeminiClient:
         except Exception as e:
             pytest.fail(f"JSON prompt test failed: {e}")
     
-    @pytest.mark.integration
     def test_json_prompt_with_schema(self):
         """Test prompt with JSON schema supplied."""
         self.logger.info("Testing prompt with JSON schema")
@@ -147,7 +139,6 @@ class TestGeminiClient:
         
         self.logger.info("✅ Empty prompt negative test successful")
     
-    @pytest.mark.integration
     def test_default_model_used(self):
         """Test that default model for service is used (check meta output)."""
         self.logger.info("Testing default model usage")
@@ -171,7 +162,6 @@ class TestGeminiClient:
         except Exception as e:
             pytest.fail(f"Default model test failed: {e}")
     
-    @pytest.mark.integration
     def test_alt_model_specified(self):
         """Test that alternative model specified was used (check meta output)."""
         self.logger.info("Testing alternative model usage")

@@ -41,7 +41,7 @@ def get_secret(secret_name: str) -> str:
             logger.debug(f"Successfully loaded and cached secret '{secret_name}'")
             return response.secret.value
         else:
-            raise SecretUnavailableException(f"Secret '{secret_name}' not found")
+            raise SecretUnavailableException(f"Secret '{secret_name}' not found", secret_name=secret_name)
             
     except Exception as e:
         logger.debug(f"Failed to load secret '{secret_name}': {e}")

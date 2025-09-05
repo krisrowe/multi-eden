@@ -147,29 +147,65 @@ api:
         f.write(app_yaml_content)
 
 
-def _create_environments_yaml(config_dir: Path, dev_project_id: str) -> None:
-    """Create config/environments.yaml with dev project configuration."""
+def _create_environments_yaml(config_dir: Path, app_id: str) -> None:
+    """Create config/environments.yaml with app-specific configuration."""
     env_yaml_content = f"""# Multi-Eden Environment Configuration
 # Inherits from SDK defaults and overrides project-specific settings
 
 environments:
-  # Development environment with real cloud resources
-  dev:
-    project_id: {dev_project_id}
-    custom_auth_enabled: true
-    stub_ai: false
-    stub_db: false
-    
-  # Production environment (inherits from dev)
-  prod:
-    project_id: {dev_project_id}  # TODO: Update with prod project ID
-    custom_auth_enabled: true
-    stub_ai: false
-    stub_db: false
+  app:
+    env:
+      APP_ID: "{app_id}"  # App-specific settings, no project ID
+  # dev and prod inherit from SDK defaults
+  # Only override specific values if needed:
+  # dev:
+  #   env:
+  #     PROJECT_ID: "my-hardcoded-project-id"  # Overrides $.projects.dev from SDK
+  #     LOG_LEVEL: "DEBUG"  # Example: more verbose logging for dev
+  #     API_TIMEOUT: "30"  # Example: longer timeout for debugging
+  # prod:
+  #   env:
+  #     PROJECT_ID: "$.projects.prod-2"  # overrides $.projects.prod from SDK 
+  #     LOG_LEVEL: "WARNING"  # Example: less verbose logging for prod
+  #     API_TIMEOUT: "10"  # Example: shorter timeout for prod
+  # staging:  # Example: add new environment
+  #   inherits: "app"
+  #   env:
+  #     PROJECT_ID: "$.projects.staging"
+  #     LOG_LEVEL: "INFO"
+  #     STUB_AI: false  # Example: use real AI in staging
 """
     
     with open(config_dir / "environments.yaml", "w") as f:
         f.write(env_yaml_content)
+
+
+def _create_pytest_ini(repo_root: Path) -> None:
+    """Create pytest.ini with plugin registration."""
+    pytest_content = '''[pytest]
+plugins = multi_eden
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+'''
+    with open(repo_root / "pytest.ini", "w") as f:
+        f.write(pytest_content)
+
+
+def _create_projects_file(repo_root: Path, dev_project_id: str) -> None:
+    """Create .projects file with project IDs."""
+    projects_content = f"""# Multi-Eden Project IDs
+# This file contains project IDs for different environments
+# Used by environments.yaml with $.projects syntax
+
+dev={dev_project_id}
+prod={dev_project_id}  # TODO: Update with production project ID
+"""
+    with open(repo_root / ".projects", "w") as f:
+        f.write(projects_content)
+
+
 
 
 def _handle_gitignore_environments(repo_root: Path) -> ActionResult:
@@ -532,7 +568,7 @@ def _execute_plan(plan: InitPlan) -> List[ActionResult]:
             results.append(ActionResult("config/app.yaml", "SKIPPED", "Already exists"))
         
         if not (config_dir / "environments.yaml").exists():
-            _create_environments_yaml(config_dir, plan.dev_project_id)
+            _create_environments_yaml(config_dir, plan.app_id)
             results.append(ActionResult("config/environments.yaml", "DONE", "Created environment configuration"))
         else:
             results.append(ActionResult("config/environments.yaml", "SKIPPED", "Already exists"))
@@ -540,6 +576,21 @@ def _execute_plan(plan: InitPlan) -> List[ActionResult]:
         # Handle .gitignore for environments.yaml
         gitignore_result = _handle_gitignore_environments(plan.repo_root)
         results.append(gitignore_result)
+        
+        # Create pytest.ini
+        if not (plan.repo_root / "pytest.ini").exists():
+            _create_pytest_ini(plan.repo_root)
+            results.append(ActionResult("pytest.ini", "DONE", "Created pytest configuration"))
+        else:
+            results.append(ActionResult("pytest.ini", "SKIPPED", "Already exists"))
+        
+        
+        # Create .projects file
+        if not (plan.repo_root / ".projects").exists():
+            _create_projects_file(plan.repo_root, plan.dev_project_id)
+            results.append(ActionResult(".projects", "DONE", "Created project IDs file"))
+        else:
+            results.append(ActionResult(".projects", "SKIPPED", "Already exists"))
         
         # Copy provider tests
         if not (tests_dir / "providers").exists():

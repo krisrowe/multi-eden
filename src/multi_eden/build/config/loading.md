@@ -12,6 +12,7 @@
 7. **No backward compatibility**: Clean break from old system, build it right from the start
 8. **Minimal app configuration**: Allow apps to configure nothing but project IDs if desired, keeping project ID definition as easy as possible while allowing all other app-level configuration to be version controlled safely
 9. **Declarative test environments**: Make it as easy as possible to define which tests need which environment layers, with automatic loading via `pytest` and clear skip reporting when local configuration is insufficient
+10. **Atomic environment loading**: Environment loading must be atomic - either ALL variables load successfully or NONE are applied. No partial state where `os.environ` and global tracking are out of sync.
 
 ### **User Experience Goals**
 
@@ -77,12 +78,14 @@ api:
 - **Single source of truth**: One `environments.yaml` file with inheritance
 - **Process-level caching**: Secrets loaded once, cached globally
 - **Resilient loading**: Mid-load failures don't corrupt environment state
-- **Marker-based testing**: `@pytest.mark.integration()` and `@pytest.mark.uses_secret()` markers for automatic environment loading
+- **Path-based testing**: Automatic environment loading based on test file paths using YAML-driven pattern matching
 - **Strongly-typed exceptions**: Clear error messages for configuration issues
 - **No magic**: Explicit environment loading, no hidden side effects
 - **Project ID management**: Use `$.projects` syntax to reference `.projects` file
 - **Environment inheritance**: Safe `app` layer for common settings, environment-specific project IDs
 - **Smart base layer detection**: Auto-detect working base layer for integration tests
+- **Minimal invasiveness**: Keep framework lightweight with minimal boilerplate code or configuration in app repos
+- **Zero boilerplate testing**: Avoid requiring markers, conftest.py files, or other invasive test configuration
 
 ## **Glossary**
 
@@ -98,13 +101,14 @@ api:
 - **SDK Config**: Default environment definitions in the SDK (`src/multi_eden/build/config/environments.yaml`)
 - **App Config**: App-specific overrides (`config/environments.yaml` in app repos)
 
-**Test Markers:**
-- **@pytest.mark.integration("unit")**: Marks tests requiring unit environment
-- **@pytest.mark.integration("ai")**: Marks tests requiring AI environment (needs GEMINI_API_KEY)
-- **@pytest.mark.integration("api-test")**: Marks tests requiring integration environment (needs PROJECT_ID)
+**Test Configuration:**
+- **Path-based matching**: Tests in `tests/unit/` automatically load unit environment
+- **Path-based matching**: Tests in `tests/ai/` automatically load AI environment (needs GEMINI_API_KEY)
+- **Path-based matching**: Tests in `tests/integration/` automatically load api-test environment (needs PROJECT_ID)
+- **YAML-driven patterns**: Configurable test folder patterns in `test_config.yaml`
 
 ## **Overview**
-Completely rebuild the environment loading system from scratch as the "right system" with no backward compatibility. Use a single `environments.yaml` file with inheritance-based layering, eliminating the need for separate `tasks.yaml` and `tests.yaml` environment configurations. This is a new SDK with no existing users, so we can make breaking changes to get the architecture right.
+Completely rebuild the environment loading system from scratch as the "right system" with no backward compatibility. Use a single `environments.yaml` file with inheritance-based layering, eliminating the need for separate `tasks.yaml` and `tests.yaml` environment configuration of env var key/value pairs. This is a new SDK with no existing users, so we can make breaking changes to get the architecture right.
 
 ## **Current State**
 - **Complex layering**: Multiple YAML files (`environments.yaml`, `tasks.yaml`, `tests.yaml`) with overlapping concerns
@@ -120,7 +124,7 @@ Completely rebuild the environment loading system from scratch as the "right sys
 - **Verbose debug logging**: Detailed logging of layer loading and inheritance
 - **No backward compatibility**: Clean break from old system
 - **No tasks.yaml**: Tasks declare environment directly in decorator
-- **Test markers**: Test modules use `@pytest.mark.*_env` markers for automatic environment loading
+- **Path-based testing**: Test modules automatically load environment based on file path using YAML patterns
 
 ## **Code Refactoring Required**
 
@@ -128,9 +132,58 @@ Completely rebuild the environment loading system from scratch as the "right sys
 1. **`multi-eden/src/multi_eden/build/config/loading.py`** - Complete rewrite
 2. **`multi-eden/src/multi_eden/build/config/loading.yaml`** - Delete (no longer needed)
 3. **`multi-eden/src/multi_eden/build/config/tasks.yaml`** - Delete (no longer needed)
-4. **`multi-eden/src/multi_eden/build/config/tests.yaml`** - Delete (no longer needed)
+4. **`multi-eden/src/multi_eden/build/config/tests.yaml`** - Restructure
 5. **`multi-eden/src/multi_eden/build/tasks/config/decorators.py`** - Simplify decorator
 6. **`multi-eden/src/multi_eden/build/tasks/config/setup.py`** - Remove task config functions
+
+### **Tests.yaml Restructuring Plan**
+
+#### **Current Structure (to be replaced)**:
+```yaml
+# tests.yaml (old)
+modes:
+  unit:
+    env:
+      JWT_SECRET_KEY: "test-jwt-secret"
+      STUB_AI: true
+  ai:
+    env:
+      GEMINI_API_KEY: "secret:gemini-api-key"
+  integration:
+    env:
+      PROJECT_ID: "secret:project-id"
+```
+
+#### **New Structure (Repurposing tests.yaml)**:
+```yaml
+# tests.yaml (repurposed)
+suites:
+  unit:
+    env: "unit"  # Reference to environment layer
+    description: "Unit tests that don't require external dependencies"
+  ai:
+    env: "ai"    # Reference to environment layer
+    description: "AI tests that require GEMINI_API_KEY"
+  integration:
+    env: "api-test"  # Reference to environment layer
+    description: "Integration tests that require PROJECT_ID"
+  api:
+    env: "api-test"  # Reference to environment layer
+    description: "API tests that require PROJECT_ID"
+```
+
+#### **Key Changes**:
+1. **Rename `modes` to `suites`** - More accurate terminology
+2. **Change `env` from object to string** - References environment layer name
+3. **Remove environment variables** - Moved to `environments.yaml`
+4. **Add descriptions** - Better documentation
+5. **Simplify structure** - Just references, not full environment definitions
+
+#### **Migration Impact**:
+- **Task system**: Update to use `tests.yaml` instead of `tests.yaml`
+- **Environment loading**: Use referenced environment layers from `environments.yaml`
+- **Test discovery**: Use pytest plugin instead of conftest.py
+- **Configuration**: Centralized in `environments.yaml` with inheritance
 
 ### **Files to Update**
 1. **`multi-eden/src/multi_eden/build/tasks/prompt.py`** - Update decorator usage
@@ -140,19 +193,19 @@ Completely rebuild the environment loading system from scratch as the "right sys
 5. **`multi-eden/src/multi_eden/build/tasks/build.py`** - Update decorator usage
 6. **`multi-eden/src/multi_eden/build/tasks/deploy.py`** - Update decorator usage
 7. **`multi-eden/src/multi_eden/build/tasks/test.py`** - Remove decorator, simplify
-8. **`multi-eden/tests/conftest.py`** - Central marker-based environment loading
-9. **`multi-eden/tests/unit/test_*.py`** - Add `pytestmark = pytest.mark.integration("unit")`
-10. **`multi-eden/tests/ai/test_*.py`** - Add `pytestmark = pytest.mark.integration("ai")`
+8. **`multi-eden/pytest_plugin.py`** - Path-based environment loading plugin
+9. **`multi-eden/test_config.yaml`** - SDK default test folder patterns
+10. **`multi-eden/src/multi_eden/__init__.py`** - Add pytest plugin registration
 
 ### **New Files to Create**
 1. **`multi-eden/src/multi_eden/build/config/exceptions.py`** - Strongly-typed exceptions
-2. **`multi-eden/tests/api/test_*.py`** - Add `pytestmark = pytest.mark.integration("api-test")`
+2. **`multi-eden/src/multi_eden/test_config.yaml`** - SDK default test folder patterns
 
 ### **Files to Delete/Repurpose**
 1. **`multi-eden/src/multi_eden/build/config/secrets.py`** - Delete existing file, repurpose for secret caching
 2. **`multi-eden/src/multi_eden/build/config/loading.yaml`** - Delete (replaced by environments.yaml)
 3. **`multi-eden/src/multi_eden/build/config/tasks.yaml`** - Delete (tasks declare environment directly)
-4. **`multi-eden/src/multi_eden/build/config/tests.yaml`** - Delete (replaced by marker system)
+4. **`multi-eden/src/multi_eden/build/config/tests.yaml`** - Repurpose (restructure from modes to suites)
 
 ### **Dead Code Analysis**
 **File**: `multi-eden/src/multi_eden/build/config/models.py`
@@ -169,13 +222,79 @@ Completely rebuild the environment loading system from scratch as the "right sys
 **File**: `multi-eden/src/multi_eden/build/tasks/init_app.py`
 
 **Current Issues**:
-- Uses old `environments.yaml` structure (no inheritance)
+- Uses old `environments.yaml` structure (no inheritance, no `env:` wrapper)
 - Creates separate `dev` and `prod` environments instead of using inheritance
-- No support for new marker-based testing system
-- Missing `tests/conftest.py` creation
+- No support for new pytest plugin system
+- Missing `pytest.ini` creation
 - No guidance for new environment loading system
 
 **Required Updates**:
+
+#### **1. Update `_create_environments_yaml()`**:
+```yaml
+environments:
+  app:
+    env:
+      APP_ID: "my-app-id"  # App-specific settings, no project ID
+  # dev and prod inherit from SDK defaults
+  # Only override specific values if needed:
+  # dev:
+  #   env:
+  #     PROJECT_ID: "$.projects.dev"  # Example: override SDK default project ID
+  #     LOG_LEVEL: "DEBUG"  # Example: more verbose logging for dev
+  #     API_TIMEOUT: "30"  # Example: longer timeout for debugging
+  # prod:
+  #   env:
+  #     PROJECT_ID: "$.projects.prod"  # Example: different project for prod
+  #     LOG_LEVEL: "WARNING"  # Example: less verbose logging for prod
+  #     API_TIMEOUT: "10"  # Example: shorter timeout for prod
+  # staging:  # Example: add new environment
+  #   inherits: "app"
+  #   env:
+  #     PROJECT_ID: "$.projects.staging"
+  #     LOG_LEVEL: "INFO"
+  #     STUB_AI: false  # Example: use real AI in staging
+```
+
+#### **2. Add `.projects` file creation**:
+```python
+def _create_projects_file(repo_root: Path, dev_project_id: str) -> None:
+    """Create .projects file with project IDs."""
+    projects_content = f"""# Multi-Eden Project IDs
+# Format: environment=project-id
+
+dev={dev_project_id}
+prod={dev_project_id}  # TODO: Update with production project ID
+integration-test={dev_project_id}
+"""
+    with open(repo_root / ".projects", "w") as f:
+        f.write(projects_content)
+```
+
+#### **3. Add `pytest.ini` creation**:
+```python
+def _create_pytest_ini(repo_root: Path) -> None:
+    """Create pytest.ini with multi-eden plugin."""
+    pytest_content = '''[pytest]
+plugins = multi_eden
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = 
+    -v
+    --tb=short
+    --color=yes
+'''
+    with open(repo_root / "pytest.ini", "w") as f:
+        f.write(pytest_content)
+```
+
+#### **4. Add guidance messages** for new environment system:
+- Explain pytest plugin system
+- Show how to customize test folder patterns
+- Explain environment inheritance
+- Show how to add new environment layers
 
 ### **1. New Invoke Task: `register-project`**
 
@@ -248,16 +367,26 @@ __all__ = ["register_project"]
    ```yaml
    environments:
      app:
-       environment:
+       env:
          APP_ID: "my-app-id"  # App-specific settings, no project ID
-     dev:
-       inherits: ["app"]
-       environment:
-         PROJECT_ID: "$.projects.dev"  # Reference .projects file
-     prod:
-       inherits: ["app"]
-       environment:
-         PROJECT_ID: "$.projects.prod"
+     # dev and prod inherit from SDK defaults
+     # Only override specific values if needed:
+     # dev:
+     #   env:
+     #     PROJECT_ID: "my-hardcoded-project-id  # Overrides $.projects.dev from SDK
+     #     LOG_LEVEL: "DEBUG"  # Example: more verbose logging for dev
+     #     API_TIMEOUT: "30"  # Example: longer timeout for debugging
+     # prod:
+     #   env:
+     #     PROJECT_ID: "$.projects.prod-2"  # overrides $.projects.prod from SDK 
+     #     LOG_LEVEL: "WARNING"  # Example: less verbose logging for prod
+     #     API_TIMEOUT: "10"  # Example: shorter timeout for prod
+     # staging:  # Example: add new environment
+     #   inherits: "app"
+     #   env:
+     #     PROJECT_ID: "$.projects.staging"
+     #     LOG_LEVEL: "INFO"
+     #     STUB_AI: false  # Example: use real AI in staging
    ```
 
 2. **Add `.projects` file creation**:
@@ -359,11 +488,13 @@ integration-test={dev_project_id}
 4. **Add pytest.ini creation**:
    ```python
    def _create_pytest_ini(repo_root: Path) -> None:
-       """Create pytest.ini with environment markers."""
+       """Create pytest.ini with plugin registration."""
        pytest_content = '''[pytest]
-   markers =
-       integration(layer_name, base_layer=None): Marks tests requiring specific environment layer
-       uses_secret(secret_name): Marks tests requiring specific secret
+   plugins = multi_eden
+   testpaths = tests
+   python_files = test_*.py
+   python_classes = Test*
+   python_functions = test_*
    '''
        with open(repo_root / "pytest.ini", "w") as f:
            f.write(pytest_content)
@@ -371,8 +502,8 @@ integration-test={dev_project_id}
 
 5. **Add guidance messages** for new environment system:
    - Explain inheritance-based environments
-   - Show how to add AI tests with `pytestmark = pytest.mark.uses_secret("gemini-api-key")`
-   - Show how to add integration tests with `pytestmark = pytest.mark.integration("api-test")`
+   - Show how path-based environment loading works
+   - Explain how to customize test folder patterns in test_config.yaml
 
 ## **Decorator Usage**
 
@@ -384,47 +515,54 @@ def prompt(ctx, prompt_text):
     # Task implementation
 ```
 
-### **Test Markers**
-Test modules use `pytestmark` at module level with appropriate markers:
+### **Path-Based Environment Detection**
+Test modules automatically get the appropriate environment based on their file path. No markers or configuration needed!
 
-**Integration Tests** (with and without base layer):
+**How it works:**
+- `tests/unit/` → loads `unit` environment
+- `tests/ai/` → loads `ai` environment  
+- `tests/api/` → loads `api-test` environment
+- `tests/integration/` → loads `api-test` environment
+
+**Example Test Files:**
 ```python
 # tests/api/test_billing.py
-import pytest
-
-# With explicit base layer
-pytestmark = pytest.mark.integration("api-test", base_layer="integration-test")
+# No markers needed! Environment loaded automatically based on path
 
 def test_create_invoice():
-    # Test implementation
+    # load_env("api-test") called automatically
+    # Sets: PROJECT_ID=dev-project, API_URL=https://api.dev.com
+    assert os.environ["PROJECT_ID"] == "dev-project"
 
-# tests/db/test_queries.py
-import pytest
+# tests/ai/test_gemini.py  
+# No markers needed! Environment loaded automatically based on path
 
-# Without base layer (auto-detects)
-pytestmark = pytest.mark.integration("db-test")
+def test_ai_prompt():
+    # load_env("ai") called automatically
+    # Sets: GEMINI_API_KEY=secret123
+    assert os.environ["GEMINI_API_KEY"] == "secret123"
 
-def test_user_queries():
-    # Test implementation
-```
-
-**Secret Tests**:
-```python
-# tests/ai/test_analysis.py
-import pytest
-pytestmark = pytest.mark.uses_secret("gemini-api-key")
-
-def test_meal_analysis():
-    # Test implementation
-```
-
-**Unit Tests** (no markers needed):
-```python
 # tests/unit/test_calculation.py
-import pytest
+# No markers needed! Environment loaded automatically based on path
 
 def test_calculation():
-    # Test implementation - no markers needed
+    # load_env("unit") called automatically
+    # Sets: APP_ID=multi-eden-sdk, LOG_LEVEL=DEBUG
+    assert os.environ["APP_ID"] == "multi-eden-sdk"
+```
+
+**Configuration via tests.yaml:**
+```yaml
+suites:
+  unit:
+    env: "unit"
+    tests: ["tests/unit", "tests/providers", "tests/api"]
+  ai:
+    env: "ai" 
+    tests: ["tests/ai"]
+  integration:
+    env: "api-test"
+    tests: ["tests/integration", "tests/providers"]
 ```
 
 **No function-level decorators needed** - the marker applies to all tests in the module.
@@ -457,11 +595,31 @@ pytestmark = pytest.mark.integration("ai")  # Only if AI tests exist
 ```
 
 ### **SDK Repository Setup**
-After `git clone` and `source venv/bin/activate`:
+**Streamlined setup process** - just three commands:
 
-1. **Unit tests work immediately**: `pytest tests/unit`
-2. **AI tests need secret**: `pytest tests/ai` → guided to run `invoke secrets register`
-3. **Integration tests need PROJECT_ID**: `pytest tests/api` → guided to set PROJECT_ID
+```bash
+git clone <repository>
+make install
+pytest
+```
+
+**What `make install` does:**
+1. Creates virtual environment (`venv/`)
+2. Installs dependencies (`pip install -r requirements.txt`)
+3. Installs SDK in development mode (`pip install -e .`)
+4. Makes scripts executable (`chmod +x setup-venv.sh`)
+
+**What happens when you run `pytest`:**
+1. **Unit tests work immediately**: `tests/unit/` → loads `unit` environment automatically
+2. **AI tests need secret**: `tests/ai/` → skips with clear guidance to run `invoke secrets register`
+3. **Integration tests need PROJECT_ID**: `tests/api/` → skips with clear guidance to set PROJECT_ID
+4. **Clear footer guidance**: Shows exactly what to do for skipped tests
+
+**No manual configuration needed:**
+- No `conftest.py` files required
+- No `pytest.ini` configuration needed (SDK provides it)
+- No environment variable setup required
+- No markers or decorators needed in test files
 
 ## **Implementation Plan**
 
@@ -686,50 +844,75 @@ This prevents **environment pollution** between different test modules that requ
 **Example Scenario**:
 ```python
 # Module A: tests/api/test_billing.py
-@pytest.mark.integration("api-test")
+# No markers needed! Environment loaded automatically based on path
+
 def test_create_invoice():
-    # load_env("api-test", base_layer="dev") called
+    # load_env("api-test") called automatically by pytest plugin
     # Sets: PROJECT_ID=dev-project, API_URL=https://api.dev.com
     assert os.environ["PROJECT_ID"] == "dev-project"
 
 # Module B: tests/ai/test_gemini.py  
-@pytest.mark.uses_secret("gemini-api-key")
+# No markers needed! Environment loaded automatically based on path
+
 def test_ai_prompt():
-    # load_env("ai") called
+    # load_env("ai") called automatically by pytest plugin
     # CLEARS: PROJECT_ID, API_URL (our previous vars)
     # Sets: GEMINI_API_KEY=secret123
     assert "PROJECT_ID" not in os.environ  # ✅ Clean state
     assert os.environ["GEMINI_API_KEY"] == "secret123"
 ```
 
-#### **1.3 Environment Variable Tracking & Load Optimization**
+#### **1.3 Atomic Environment Loading Process**
 **File**: `multi-eden/src/multi_eden/build/config/loading.py`
+
+The environment loading system uses a **three-phase atomic process** to ensure `os.environ` and internal state remain consistent, even if secret resolution fails:
+
 ```python
 _last_load = None  # Track last successful load: {"params": {...}, "loaded_vars": {...}}
 
-def _is_same_load(top_layer: str, base_layer: Optional[str], files: List[str]) -> bool:
-    """Check if this is the same load request as the current one."""
-    if _last_load is None:
-        return False
+def load_env(top_layer: str, base_layer: Optional[str] = None, 
+             files: List[str] = None, fail_on_secret_error: bool = True) -> Dict[str, str]:
+    """Load environment variables with atomic three-phase process."""
     
-    # Resolve the actual base layer that will be used
-    resolved_base_layer = _resolve_base_layer(base_layer)
+    # Phase 1: STAGE - Load all variables into temporary dictionary
+    staged_vars = _stage_environment_variables(top_layer, base_layer, files, fail_on_secret_error)
     
-    last_params = _last_load["params"]
-    return (
-        last_params["top_layer"] == top_layer and
-        last_params["base_layer"] == resolved_base_layer and  # Compare resolved values
-        last_params["files"] == files
-    )
+    # Phase 2: CLEAR - Remove only our previously loaded variables
+    _clear_previous_variables()
+    
+    # Phase 3: APPLY - Atomically set all staged variables
+    loaded_vars = _apply_staged_variables(staged_vars)
+    
+    # Phase 4: COMMIT - Update tracking state
+    _commit_load_state(top_layer, base_layer, files, loaded_vars)
+    
+    return loaded_vars
 
-def _resolve_base_layer(base_layer: Optional[str]) -> Optional[str]:
-    """Resolve the actual base layer that will be used."""
-    if base_layer is not None:
-        return base_layer
-    return os.environ.get("BASE_ENV_LAYER")
+def _stage_environment_variables(top_layer: str, base_layer: Optional[str], 
+                                files: List[str], fail_on_secret_error: bool) -> Dict[str, Tuple[str, str]]:
+    """Phase 1: Load all variables into temporary dictionary, don't touch os.environ."""
+    staged_vars = {}
+    
+    # Load from all layers (inheritance, files, secrets)
+    # ... implementation details ...
+    
+    # Process secrets with error handling
+    for var_name, (value, source) in staged_vars.items():
+        if source.startswith("secret:"):
+            try:
+                secret_value = _resolve_secret(value)
+                staged_vars[var_name] = (secret_value, source)
+            except SecretUnavailableException as e:
+                if fail_on_secret_error:
+                    raise  # Re-raise to fail the entire load
+                else:
+                    # Use fallback value for task mode
+                    staged_vars[var_name] = (f"<secret-unavailable:{value}>", source)
+    
+    return staged_vars
 
-def _clear_our_vars():
-    """Clear only the variables that WE previously loaded."""
+def _clear_previous_variables():
+    """Phase 2: Remove only variables from our previous load."""
     if _last_load is None:
         return
     
@@ -737,25 +920,24 @@ def _clear_our_vars():
         if var_name in os.environ:
             del os.environ[var_name]
 
-def _load_staged_vars(staged_vars: Dict[str, Tuple[str, str]]) -> Dict[str, str]:
-    """Load staged variables into os.environ after clearing our previous vars."""
-    # Clear our previously loaded variables
-    _clear_our_vars()
+def _apply_staged_variables(staged_vars: Dict[str, Tuple[str, str]]) -> Dict[str, str]:
+    """Phase 3: Atomically set all staged variables into os.environ."""
+    loaded_vars = {}
     
-    # Load staged variables into os.environ
     for var_name, (value, source) in staged_vars.items():
         os.environ[var_name] = value
+        loaded_vars[var_name] = value
     
-    # Return the loaded variables for tracking
-    return {var_name: value for var_name, (value, source) in staged_vars.items()}
+    return loaded_vars
 
-def _commit_load(top_layer: str, base_layer: Optional[str], files: List[str], loaded_vars: Dict[str, str]):
-    """Commit a successful load operation."""
+def _commit_load_state(top_layer: str, base_layer: Optional[str], 
+                      files: List[str], loaded_vars: Dict[str, str]):
+    """Phase 4: Update global tracking state."""
     global _last_load
     _last_load = {
         "params": {
             "top_layer": top_layer,
-            "base_layer": _resolve_base_layer(base_layer),  # Store resolved value
+            "base_layer": base_layer,
             "files": files
         },
         "loaded_vars": loaded_vars
@@ -763,30 +945,43 @@ def _commit_load(top_layer: str, base_layer: Optional[str], files: List[str], lo
 ```
 
 **Key Points**:
+- **Atomic Process**: Either all variables load successfully or none do - no partial state corruption
+- **Two Modes**: `fail_on_secret_error=True` (pytest plugin) vs `False` (invoke tasks)
 - **Environment Isolation**: Each `load_env()` call completely replaces our previously loaded variables
-- **Clean State**: `_clear_our_vars()` removes only variables WE loaded, preserving pre-existing `os.environ`
+- **Clean State**: `_clear_previous_variables()` removes only variables WE loaded, preserving pre-existing `os.environ`
 - **No Pollution**: Different test modules get clean environments - no mixing of variables between modules
-- **Optimization**: Skip reloading if same request (unless `force_reload=True`)
-- **Load Process**: Clear our vars → Load new vars → Commit to tracking
-- Resilient to mid-load failures (no partial state corruption)
+- **Resilient**: Mid-load failures don't corrupt `os.environ` or internal state
 
-**Example: Load Optimization**
+**Example: Atomic Loading Process**
 ```python
-# Call 1: Load "api-test" layer
-load_env("api-test", files)  # Loads environment, tracks as current
-# _current_load = {"top_layer": "api-test", "base_layer": None, "files": files}
+# Call 1: Load "api-test" layer (pytest plugin mode)
+load_env("api-test", files, fail_on_secret_error=True)
+# Phase 1: STAGE - Load all variables into temp dict
+# Phase 2: CLEAR - Remove any previous variables we loaded
+# Phase 3: APPLY - Set PROJECT_ID=dev-project, API_URL=https://api.dev.com
+# Phase 4: COMMIT - Track as current load
 
-# Call 2: Load "unit" layer  
-load_env("unit", files)      # Loads different environment, clears previous
-# _current_load = {"top_layer": "unit", "base_layer": None, "files": files}
+# Call 2: Load "ai" layer (pytest plugin mode)
+load_env("ai", files, fail_on_secret_error=True)
+# Phase 1: STAGE - Load all variables into temp dict
+# Phase 2: CLEAR - Remove PROJECT_ID, API_URL (our previous vars)
+# Phase 3: APPLY - Set GEMINI_API_KEY=secret123, AI_MODEL=gemini-2.5-flash
+# Phase 4: COMMIT - Track as current load
 
-# Call 3: Load "unit" layer again (same request)
-load_env("unit", files)      # Skips loading - same as current
-# _current_load = {"top_layer": "unit", "base_layer": None, "files": files} (unchanged)
+# Call 3: Load "unit" layer (invoke task mode)
+load_env("unit", files, fail_on_secret_error=False)
+# Phase 1: STAGE - Load all variables into temp dict
+# Phase 2: CLEAR - Remove GEMINI_API_KEY, AI_MODEL (our previous vars)
+# Phase 3: APPLY - Set APP_ID=multi-eden-sdk, LOG_LEVEL=DEBUG
+# Phase 4: COMMIT - Track as current load
 
-# Call 4: Force reload same environment
-load_env("unit", files, force_reload=True)  # Forces reload even though same
-# _current_load = {"top_layer": "unit", "base_layer": None, "files": files} (updated)
+# If secret resolution fails in pytest mode:
+load_env("ai", files, fail_on_secret_error=True)
+# Phase 1: STAGE - Fails on GEMINI_API_KEY resolution
+# Phase 2: CLEAR - Not reached (exception raised)
+# Phase 3: APPLY - Not reached (exception raised)  
+# Phase 4: COMMIT - Not reached (exception raised)
+# Result: os.environ unchanged, _last_load unchanged
 ```
 
 ### **Phase 2: Environment Structure with Inheritance**
@@ -945,158 +1140,253 @@ def _process_inheritance(top_layer: str, base_layer: Optional[str], merged_confi
 
 ### **Phase 4: New Load Environment Function**
 
-#### **4.1 Main Load Environment Function**
-```python
-def load_env(top_layer: str, base_layer: Optional[str] = None, files: Optional[List[str]] = None, force_reload: bool = False) -> Dict[str, Tuple[str, str]]:
-    """Load environment with optional base layer and configurable file sources."""
-    if files is None:
-        # Default file sources
-        files = [
-            "environments.yaml",  # SDK environments
-            "{cwd}/config/environments.yaml"  # App environments
-        ]
-    
-    # Check if this is the same load request as current
-    if not force_reload and _is_same_load(top_layer, base_layer, files):
-        logger.debug(f"Skipping reload - same environment already loaded: '{top_layer}'")
-        return {}  # Return empty dict since nothing changed
-    
-    return _load_env(top_layer, base_layer, files)
+#### **4.0 Atomic Loading Design**
 
-def _load_env(top_layer: str, base_layer: Optional[str], files: List[str]) -> Dict[str, Tuple[str, str]]:
-    """Internal load environment function with required parameters."""
-    logger.debug(f"Loading environment '{top_layer}' from files: {files}")
-    if base_layer:
-        logger.debug(f"With base environment layer: '{base_layer}'")
+**Critical Requirement**: Environment loading must be atomic to prevent partial state corruption.
+
+**Problem**: If environment loading fails partway through, we could end up with:
+- Some variables already set in `os.environ` 
+- Global `_last_load` tracker not updated
+- Next environment load doesn't know which variables to clear
+- `os.environ` and tracking state become permanently out of sync
+
+**Solution**: Three-phase atomic loading with two modes:
+
+**Mode 1: `fail_on_secret_error=True` (pytest plugin)**
+1. **STAGING PHASE**: Load ALL new values into a temporary dictionary
+   - Resolve ALL secrets and environment variables
+   - If ANY secret fails, raise `SecretUnavailableException` immediately
+   - NO changes to `os.environ` or global state yet
+
+2. **CLEARING PHASE**: Remove old variables from `os.environ`
+   - Only after staging succeeds completely
+   - Clear variables from previous load
+
+3. **APPLYING PHASE**: Apply all new variables atomically
+   - Set all new variables in `os.environ`
+   - Update global `_last_load` tracker
+   - All changes happen together or not at all
+
+**Mode 2: `fail_on_secret_error=False` (task mode)**
+1. **STAGING PHASE**: Load new values into a temporary dictionary
+   - Resolve secrets and environment variables
+   - If secret fails, skip that variable (don't include in staged vars)
+   - Continue processing other variables
+   - NO changes to `os.environ` or global state yet
+
+2. **CLEARING PHASE**: Remove old variables from `os.environ`
+   - Only after staging succeeds completely
+   - Clear variables from previous load
+
+3. **APPLYING PHASE**: Apply all non-failed variables atomically
+   - Set all staged variables in `os.environ`
+   - Update global `_last_load` tracker
+   - All changes happen together or not at all
+
+**Critical Rules**:
+- **Never touch pre-existing variables**: Variables that existed before first `load_env()` call are never modified
+- **Atomic loading**: Either all non-failed variables load successfully or none do
+- **Clear logging**: Every single environment variable processing must be logged with `logger.debug`
+- **Failed secrets get no value**: Failed secrets are not set in `os.environ` (not cleared, not set to empty)
+
+**Detailed Logging Requirements**:
+Every environment variable processing must be logged with `logger.debug`:
+```python
+# For each environment variable in the loop:
+logger.debug(f"Processing variable '{env_var_name}' from layer '{layer_name}'")
+logger.debug(f"Variable '{env_var_name}' already set to '{existing_value}' - keeping existing")
+logger.debug(f"Variable '{env_var_name}' not set - loading new value '{processed_value}' from layer '{layer_name}'")
+logger.debug(f"Variable '{env_var_name}' not set - loading new secret value from layer '{layer_name}'")
+logger.debug(f"Variable '{env_var_name}' not set - skipping due to secret error: {e}")
+logger.debug(f"Variable '{env_var_name}' not set - skipping due to processing error: {e}")
+```
+
+**Implementation**:
+```python
+def load_env(top_layer: str, base_layer: Optional[str] = None, files: Optional[List[str]] = None, force_reload: bool = False, fail_on_secret_error: bool = True) -> Dict[str, Tuple[str, str]]:
+    """Load environment with atomic staging/clearing/applying phases."""
+    
+    # PHASE 1: STAGING - Load all new values without touching os.environ
+    staged_vars = _stage_environment_variables(top_layer, base_layer, files, fail_on_secret_error)
+    
+    # PHASE 2: CLEARING - Remove old variables (only after staging succeeds)
+    _clear_previous_variables()
+    
+    # PHASE 3: APPLYING - Apply all new variables atomically
+    _apply_staged_variables(staged_vars)
+    _commit_load_state(top_layer, base_layer, files, staged_vars)
+    
+    return staged_vars
+```
+
+## **Detailed Design Specification**
+
+### **Core Design Principles**
+
+The `load_env` function must implement a **three-phase atomic loading process** that ensures environment variables are loaded safely and consistently, with proper error handling and state management.
+
+### **Phase-by-Phase Design**
+
+#### **PHASE 0: VALIDATION & CACHE CHECK**
+```python
+# Validate required input arguments (no defaults/fallbacks)
+if not top_layer:
+    raise ValueError("top_layer is required")
+
+# Check if this is the same load request as current
+if not force_reload and _is_same_load(top_layer, base_layer, files):
+    logger.debug(f"Skipping reload - same environment already loaded: '{top_layer}'")
+    return {}  # Return empty dict since nothing changed
+```
+
+**Requirements**:
+- Validate all required parameters
+- Check cache to avoid redundant loads
+- Return early if same environment already loaded
+
+#### **PHASE 1: STAGING - Load all values without touching os.environ**
+```python
+def _stage_environment_variables(top_layer: str, base_layer: Optional[str], files: List[str], fail_on_secret_error: bool) -> Dict[str, Tuple[str, str]]:
+    """
+    Load all environment variables into a staging dictionary without modifying os.environ.
+    
+    This phase:
+    1. Locates and merges environment.yaml files from SDK and app
+    2. Extracts environment variable table for specified layer using inheritance
+    3. Processes all values (secrets, expressions) into literal values
+    4. Handles secret failures based on fail_on_secret_error parameter
+    5. Returns staging dictionary: {var_name: (value, source)}
+    """
+    staged_vars = {}
     
     # Load and merge configuration files
     merged_config = _load_and_merge_files(files)
     
-    # Process inheritance and load new variables
+    # Process inheritance and get environment config
     env_config = _process_inheritance(top_layer, base_layer, merged_config)
-    new_vars = _load_environment_variables(env_config, top_layer)
     
-    # Load the staged variables (clear our vars, load new vars)
-    loaded_vars = _load_staged_vars(new_vars)
-    
-    # Commit the successful load
-    _commit_load(top_layer, base_layer, files, loaded_vars)
-    
-    # Return the loaded variables with source info
-    return {name: (value, source) for name, (value, source) in new_vars.items()}
-
-def _load_and_merge_files(files: List[str]) -> Dict[str, Any]:
-    """Load and merge multiple configuration files."""
-    merged_environments = {}
-    
-    for file_path in files:
-        # Resolve file path (handle {cwd} placeholder)
-        resolved_path = file_path.replace("{cwd}", str(Path.cwd()))
-        if not resolved_path.startswith("/"):
-            # Relative path - resolve from SDK root
-            sdk_root = Path(__file__).parent.parent.parent.parent
-            resolved_path = sdk_root / resolved_path
-        
-        logger.debug(f"Loading config file: {resolved_path}")
-        
-        if not Path(resolved_path).exists():
-            logger.debug(f"Config file not found: {resolved_path}")
-            continue
-        
-        try:
-            with open(resolved_path, 'r') as f:
-                config = yaml.safe_load(f) or {}
-            
-            if 'environments' in config:
-                # Merge environments (later files override earlier ones)
-                for env_name, env_config in config['environments'].items():
-                    if env_name in merged_environments:
-                        # Merge app overrides into SDK defaults
-                        merged_environments[env_name]['env'].update(env_config.get('env', {}))
-                    else:
-                        # Add new environment
-                        merged_environments[env_name] = env_config
-                
-                logger.debug(f"Loaded {len(config['environments'])} environments from {resolved_path}")
-        
-        except Exception as e:
-            logger.error(f"Failed to load config file {resolved_path}: {e}")
-            raise EnvironmentLoadError(f"Failed to load config file {resolved_path}: {e}")
-    
-    return {'environments': merged_environments}
-
-# This function is now defined above in section 3.2
-
-def _load_environment_variables(env_config: Dict[str, Any], layer_name: str) -> Dict[str, Tuple[str, str]]:
-    """Load environment variables with secret error handling."""
-    loaded_vars = {}
-    
-    for key, value in env_config.get('env', {}).items():
+    # Process each environment variable
+    for key, value in env_config.get('environment', {}).items():
         env_var_name = key.upper()
+        logger.debug(f"Processing variable '{env_var_name}' from layer '{top_layer}'")
         
         # Check if already in os.environ (highest priority)
         if env_var_name in os.environ:
             existing_value = os.environ[env_var_name]
-            
-            # Process the value we would have loaded to compare
-            try:
-                processed_value = _process_value(value)
-                
-                if existing_value == processed_value:
-                    logger.debug(f"Variable '{env_var_name}' already set to desired value - keeping existing")
-                else:
-                    logger.debug(f"Variable '{env_var_name}' already set to different value (wanted different) - keeping existing")
-                
-                loaded_vars[env_var_name] = (existing_value, 'os.environ')
-                continue
-                
-            except SecretUnavailableException as e:
-                logger.debug(f"Variable '{env_var_name}' already set - skipping secret processing due to error: {e}")
-                loaded_vars[env_var_name] = (existing_value, 'os.environ')
-                continue
-            except Exception as e:
-                logger.debug(f"Variable '{env_var_name}' already set - skipping processing due to error: {e}")
-                loaded_vars[env_var_name] = (existing_value, 'os.environ')
-                continue
+            logger.debug(f"Variable '{env_var_name}' already set to '{existing_value}' - keeping existing")
+            staged_vars[env_var_name] = (existing_value, 'os.environ')
+            continue
         
         # Process new value (not in os.environ)
         try:
             processed_value = _process_value(value)
-            # Simple decision: if it's a secret, don't log the value
             if value.startswith('secret:'):
-                logger.debug(f"Variable '{env_var_name}' not set - loading new secret value from layer '{layer_name}'")
+                logger.debug(f"Variable '{env_var_name}' not set - loading new secret value from layer '{top_layer}'")
             else:
-                logger.debug(f"Variable '{env_var_name}' not set - loading new value '{processed_value}' from layer '{layer_name}'")
-            loaded_vars[env_var_name] = (processed_value, 'environment')
+                logger.debug(f"Variable '{env_var_name}' not set - loading new value '{processed_value}' from layer '{top_layer}'")
+            staged_vars[env_var_name] = (processed_value, 'environment')
+            
         except SecretUnavailableException as e:
             if fail_on_secret_error:
-                raise  # Re-raise the exception
+                logger.error(f"Failed to load secret for {env_var_name}: {e}")
+                raise  # Re-raise to fail entire load
             else:
                 logger.error(f"Failed to load secret for {env_var_name}: {e}")
-                logger.debug(f"Variable '{env_var_name}' not set - skipping due to secret error")
-                # Don't set any value - continue loading other variables
+                logger.debug(f"Variable '{env_var_name}' not set - skipping due to secret error: {e}")
+                # Don't set any value - continue with other variables
+                
         except Exception as e:
             logger.error(f"Failed to process {env_var_name}: {e}")
-            logger.debug(f"Variable '{env_var_name}' not set - skipping due to processing error")
-            if fail_on_secret_error:
-                raise
+            logger.debug(f"Variable '{env_var_name}' not set - skipping due to processing error: {e}")
+            # Don't set any value - continue with other variables
     
-    return loaded_vars
-
-def _process_value(value: Any) -> str:
-    """Process value with different source schemes (secret:, etc.)."""
-    if not isinstance(value, str):
-        logger.debug(f"Converting non-string value to string: {value}")
-        return str(value)
-    
-    if value.startswith('secret:'):
-        secret_name = value[7:]  # Remove 'secret:' prefix
-        logger.debug(f"Processing secret reference: {value} -> {secret_name}")
-        return get_secret(secret_name)  # Uses cached version
-    else:
-        logger.debug(f"Using literal value: {value}")
-        return value
+    return staged_vars
 ```
+
+**Requirements**:
+- **Never touch os.environ** during this phase
+- **Process all secrets and expressions** into literal values
+- **Handle secret failures** based on `fail_on_secret_error` parameter
+- **Log every variable processing** with `logger.debug`
+- **Return staging dictionary** with all successfully processed variables
+
+#### **PHASE 2: CLEARING - Remove old variables (only after staging succeeds)**
+```python
+def _clear_previous_variables() -> None:
+    """
+    Remove variables from previous load from os.environ.
+    
+    Only called after staging succeeds completely.
+    Never touches variables that existed before first load_env() call.
+    """
+    logger.debug("CLEARING: Removing variables from previous load")
+    if _last_load and "loaded_vars" in _last_load:
+        for var_name in _last_load["loaded_vars"]:
+            if var_name in os.environ:
+                logger.debug(f"CLEARING: Removing variable '{var_name}' from os.environ")
+                del os.environ[var_name]
+    logger.debug("CLEARING: Completed clearing previous variables")
+```
+
+**Requirements**:
+- **Only clear variables from previous load** (tracked in `_last_load`)
+- **Never touch pre-existing variables** that existed before first `load_env()` call
+- **Only called after staging succeeds** completely
+
+#### **PHASE 3: APPLYING - Apply all staged variables atomically**
+```python
+def _apply_staged_variables(staged_vars: Dict[str, Tuple[str, str]]) -> None:
+    """
+    Apply all staged variables to os.environ atomically.
+    
+    All changes happen together or not at all.
+    """
+    logger.debug(f"APPLYING: Setting {len(staged_vars)} variables in os.environ")
+    for var_name, (value, source) in staged_vars.items():
+        logger.debug(f"APPLYING: Setting '{var_name}' = '{value}' (source: {source})")
+        os.environ[var_name] = value
+    logger.debug("APPLYING: Completed applying staged variables")
+
+def _commit_load_state(top_layer: str, base_layer: Optional[str], files: List[str], staged_vars: Dict[str, Tuple[str, str]]) -> None:
+    """
+    Update global _last_load tracker with successful load.
+    """
+    global _last_load
+    _last_load = {
+        "params": {
+            "top_layer": top_layer,
+            "base_layer": _resolve_base_layer(base_layer),
+            "files": files
+        },
+        "loaded_vars": {var_name: value for var_name, (value, source) in staged_vars.items()}
+    }
+    logger.debug(f"COMMIT: Updated global state for environment '{top_layer}'")
+```
+
+**Requirements**:
+- **Atomic operation**: All variables set together or none at all
+- **Update global state**: Set `_last_load` tracker for next load
+- **Minimal risk**: Use simple, safe operations
+
+### **Two-Mode Behavior**
+
+#### **Mode 1: `fail_on_secret_error=True` (pytest plugin mode)**
+- If **ANY** secret fails → raise `SecretUnavailableException`
+- **NO changes** to `os.environ` or global state
+- Used by pytest plugin for test skipping
+
+#### **Mode 2: `fail_on_secret_error=False` (task mode)**
+- If secret fails → skip that variable, continue with others
+- Still atomic: either ALL non-failed variables load or NONE load
+- Failed secrets get **NO value** in `os.environ` (not cleared, not set)
+
+### **Critical Requirements**
+
+1. **Never touch pre-existing variables**: Variables that existed before first `load_env()` call are never modified
+2. **Atomic loading**: Either all non-failed variables load successfully or none do
+3. **Clear logging**: Every single environment variable processing must be logged with `logger.debug`
+4. **Failed secrets get no value**: Failed secrets are not set in `os.environ` (not cleared, not set to empty)
+5. **State consistency**: `_last_load` tracker must always reflect actual `os.environ` state
 
 ### **Phase 5: Update Task System**
 
@@ -1164,141 +1454,206 @@ def deploy(ctx, config_env=None, debug=False):
     # Task implementation
 ```
 
-### **Phase 6: Update Test System**
+### **Phase 6: Pytest Plugin System**
 
-#### **6.1 Marker-Based Environment Loading**
-**File**: `multi-eden/pytest.ini`
-```ini
-[pytest]
-markers =
-    integration(layer_name): Marks tests requiring specific environment layer
+#### **6.1 Pytest Plugin for Automatic Environment Loading**
+**File**: `multi-eden/src/multi_eden/__init__.py`
+```python
+pytest_plugins = ["multi_eden.pytest_plugin"]
 ```
 
-**File**: `multi-eden/tests/conftest.py` (Central marker-based environment loading)
+**File**: `multi-eden/src/multi_eden/pytest_plugin.py`
 ```python
-    import os
 import pytest
+import yaml
+from pathlib import Path
 from multi_eden.build.config.loading import load_env
 
-@pytest.fixture(scope="module", autouse=True)
-def env_loader(request):
-    """
-    This autouse fixture runs once per test module. It checks for environment
-    markers and loads the specified environment.
-    """
-    # Check for integration marker
-    integration_marker = request.node.get_closest_marker("integration")
-    if integration_marker:
-        layer_name = integration_marker.args[0]
-        base_layer = os.environ.get("BASE_ENV_LAYER", "app")
-        try:
-            load_env(top_layer=layer_name, base_layer=base_layer)
-    except SecretUnavailableException as e:
-            print(f"\n❌ Cannot load integration environment: {e}")
-        print("💡 To fix this, either:")
-        print("   1. Set up .secrets file locally, OR")
-        print("   2. Set BASE_ENV_LAYER environment variable")
-        print("   3. Run: export BASE_ENV_LAYER=dev")
-            pytest.exit("Integration environment setup failed")
-        return
+def pytest_runtest_setup(item):
+    """Load environment based on YAML configuration and test path."""
+    config = _load_test_config()
+    test_path = str(item.fspath)
     
-    # No additional marker checks needed - integration marker handles all cases
-    
-    # Default: load unit environment for tests without markers
-    try:
-        load_env(top_layer="unit")
-    except SecretUnavailableException as e:
-        print(f"\n❌ Cannot load default unit environment: {e}")
-        print("💡 To fix this, either:")
-        print("   1. Set up .secrets file locally, OR")
-        print("   2. Set BASE_ENV_LAYER environment variable")
-        print("   3. Run: export BASE_ENV_LAYER=dev")
-        pytest.exit("Default environment setup failed")
+    for env_name, patterns in config.get('test_folders', {}).items():
+        for pattern in patterns:
+            if pattern in test_path:
+                load_env(top_layer=env_name)
+                return
 
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Add custom footer to pytest output."""
-    # Check if GEMINI_API_KEY is available for AI tests
-    if not os.environ.get('GEMINI_API_KEY'):
-        terminalreporter.write_sep("=", "AI TESTS SKIPPED")
-        terminalreporter.write_line("❌ AI tests were skipped due to missing GEMINI_API_KEY")
-        terminalreporter.write_line("💡 To run AI tests:")
-        terminalreporter.write_line("   invoke secrets set gemini-api-key --config-env=dev")
-        terminalreporter.write_line("   # Or set BASE_ENV_LAYER environment variable")
-        terminalreporter.write_line("   export BASE_ENV_LAYER=dev")
+def _load_test_config():
+    """Load test configuration with SDK defaults and app override."""
+    # Try app config first
+    app_config_path = Path("test_config.yaml")
+    if app_config_path.exists():
+        with open(app_config_path) as f:
+            return yaml.safe_load(f)
     
-    # Check if PROJECT_ID is available for integration tests
-    if not os.environ.get('PROJECT_ID'):
-        terminalreporter.write_sep("=", "INTEGRATION TESTS SKIPPED")
-        terminalreporter.write_line("❌ Integration tests were skipped due to missing PROJECT_ID")
-        terminalreporter.write_line("💡 To run integration tests:")
-        terminalreporter.write_line("   1. Register project ID for integration testing:")
-        terminalreporter.write_line("      invoke register-project integration-test your-project-id")
-        terminalreporter.write_line("")
-        terminalreporter.write_line("   2. Or set BASE_ENV_LAYER environment variable:")
-        terminalreporter.write_line("      export BASE_ENV_LAYER=dev  # or any layer with PROJECT_ID")
+    # Fallback to SDK config
+    sdk_config_path = Path(__file__).parent / "test_config.yaml"
+    if sdk_config_path.exists():
+        with open(sdk_config_path) as f:
+            return yaml.safe_load(f)
+    
+    # Hardcoded fallback
+    return {
+        'test_folders': {
+            'unit': ['unit', 'tests/unit', 'test/unit'],
+            'ai': ['ai', 'tests/ai', 'test/ai'],
+            'api-test': ['api', 'integration', 'tests/api', 'test/api']
+        }
+    }
 ```
 
-#### **6.2 Example Test Files with Markers**
+**File**: `multi-eden/src/multi_eden/test_config.yaml`
+```yaml
+test_folders:
+  unit:
+    - "unit"
+    - "unit_tests" 
+    - "tests/unit"
+    - "test/unit"
+  ai:
+    - "ai"
+    - "ai_tests"
+    - "tests/ai" 
+    - "test/ai"
+  api-test:
+    - "api"
+    - "integration"
+    - "tests/api"
+    - "test/api"
+    - "tests/integration"
+    - "test/integration"
+```
+
+**File**: `multi-eden/src/multi_eden/tests.yaml`
+```yaml
+suites:
+  unit:
+    env: "unit"
+    description: "Unit tests that don't require external dependencies"
+  ai:
+    env: "ai"
+    description: "AI tests that require GEMINI_API_KEY"
+  integration:
+    env: "api-test"
+    description: "Integration tests that require PROJECT_ID"
+  api:
+    env: "api-test"
+    description: "API tests that require PROJECT_ID"
+```
+
+#### **6.2 App Configuration (Optional)**
+**File**: `test_config.yaml` (in app root)
+```yaml
+test_folders:
+  unit:
+    - "unit"
+    - "unit_tests"
+    - "my_custom_unit_folder"
+  ai:
+    - "ai"
+    - "ai_tests" 
+    - "my_custom_ai_folder"
+  api-test:
+    - "api"
+    - "integration"
+    - "my_custom_api_folder"
+```
+
+#### **6.3 App Setup**
+**File**: `pytest.ini` (in app root)
+```ini
+[pytest]
+plugins = multi_eden
+```
+
+#### **6.4 Test Structure Examples**
+```
+# Standard structure (works with SDK defaults)
+tests/
+  unit/
+    test_auth.py          # Matches "unit" -> loads unit environment
+  ai/
+    test_gemini.py        # Matches "ai" -> loads ai environment
+  api/
+    test_billing.py       # Matches "api" -> loads api-test environment
+
+# Custom structure (requires app config)
+tests/
+  unit_tests/
+    test_auth.py          # Matches "unit_tests" -> loads unit environment
+  ai_tests/
+    test_gemini.py        # Matches "ai_tests" -> loads ai environment
+  integration/
+    test_api.py           # Matches "integration" -> loads api-test environment
+```
+
+#### **6.2 Example Test Files with Path-Based Environment Loading**
 **File**: `multi-eden/tests/unit/test_calculation_logic.py`
 ```python
-import pytest
-
-# This marker applies to ALL tests in this file
-pytestmark = pytest.mark.unit_env
+# No markers needed! Environment loaded automatically based on path
 
 def test_calculate_nutrition():
+    # load_env("unit") called automatically by pytest plugin
+    # Sets: APP_ID=multi-eden-sdk, LOG_LEVEL=DEBUG
+    assert os.environ["APP_ID"] == "multi-eden-sdk"
     # Test logic here...
     assert True
 
 def test_validate_units():
+    # load_env("unit") called automatically by pytest plugin
     # Test logic here...
     assert True
 ```
 
 **File**: `multi-eden/tests/ai/test_ai_prompts.py`
 ```python
-import pytest
-
-# This marker applies to ALL tests in this file
-pytestmark = pytest.mark.integration("ai")
+# No markers needed! Environment loaded automatically based on path
 
 def test_prompt_generation():
+    # load_env("ai") called automatically by pytest plugin
+    # Sets: GEMINI_API_KEY=secret123, AI_MODEL=gemini-2.5-flash
+    assert os.environ["GEMINI_API_KEY"] == "secret123"
     # Test logic here...
     assert True
 
 def test_response_parsing():
+    # load_env("ai") called automatically by pytest plugin
     # Test logic here...
     assert True
 ```
 
 **File**: `multi-eden/tests/api/test_billing.py`
 ```python
-import pytest
-
-# This marker applies to ALL tests in this file
-pytestmark = pytest.mark.integration
+# No markers needed! Environment loaded automatically based on path
 
 def test_create_invoice():
+    # load_env("api-test") called automatically by pytest plugin
+    # Sets: PROJECT_ID=dev-project, API_URL=https://api.dev.com
+    assert os.environ["PROJECT_ID"] == "dev-project"
     # Test logic here...
     assert True
 
 def test_get_invoice_status():
+    # load_env("api-test") called automatically by pytest plugin
     # Test logic here...
     assert True
 ```
 
 **File**: `multi-eden/tests/api/test_auth.py`
 ```python
-import pytest
-
-# This marker applies to ALL tests in this file
-pytestmark = pytest.mark.integration
+# No markers needed! Environment loaded automatically based on path
 
 def test_user_authentication():
+    # load_env("api-test") called automatically by pytest plugin
+    # Sets: PROJECT_ID=dev-project, API_URL=https://api.dev.com
+    assert os.environ["PROJECT_ID"] == "dev-project"
     # Test logic here...
     assert True
 
 def test_token_validation():
+    # load_env("api-test") called automatically by pytest plugin
     # Test logic here...
     assert True
 ```
@@ -1311,19 +1666,47 @@ def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config
     """
     Run tests for a specific suite.
     
-    Note: Environment loading is handled by markers in test modules and central conftest.py.
+    Note: Environment loading is handled by pytest plugin based on test folder structure.
     This task just runs pytest with the appropriate test paths.
     """
     if suite is None:
         print("❌ Error: Test suite is required")
         print("   Usage: inv test <suite>")
-        print("   Available suites: unit, ai, firestore, api")
+        print("   Available suites: unit, ai, integration, api")
+        sys.exit(1)
+    
+    # Load test suite configuration
+    suite_config = _load_test_suite_config(suite)
+    if not suite_config:
+        print(f"❌ Error: Test suite '{suite}' not found")
+        print("   Available suites: unit, ai, integration, api")
         sys.exit(1)
     
     # Get test paths for pytest - no environment loading needed
     test_paths = _get_test_paths(suite) if suite else None
     
     return run_pytest(suite, config_env, verbose, test_name, show_config, test_paths, quiet)
+
+def _load_test_suite_config(suite_name):
+    """Load test suite configuration from tests.yaml."""
+    import yaml
+    from pathlib import Path
+    
+    # Try app config first
+    app_config_path = Path("tests.yaml")
+    if app_config_path.exists():
+        with open(app_config_path) as f:
+            config = yaml.safe_load(f)
+            return config.get('suites', {}).get(suite_name)
+    
+    # Fallback to SDK config
+    sdk_config_path = Path(__file__).parent.parent / "config" / "tests.yaml"
+    if sdk_config_path.exists():
+        with open(sdk_config_path) as f:
+            config = yaml.safe_load(f)
+            return config.get('suites', {}).get(suite_name)
+    
+    return None
 ```
 
 #### **6.4 Pytest Footer Guidance**
@@ -1436,7 +1819,6 @@ class SecretUnavailableException(Exception):
 #### **9.1 Delete Old Files**
 - Delete `loading.yaml` (replaced by inheritance system)
 - Delete `tasks.yaml` (no longer needed - tasks declare environment in decorator)
-- Delete `tests.yaml` (no longer needed - test suites use conftest.py)
 - Delete old `loading.py` (complete rewrite)
 
 #### **9.2 Update All Dependencies**
@@ -1506,7 +1888,7 @@ DEBUG: Using cached secret 'gemini-api-key'
 11. **Error propagation**: Let secrets manager exceptions bubble up
 12. **No backward compatibility**: Clean break from old system
 13. **No tasks.yaml**: Tasks declare environment directly in decorator
-14. **Marker-based testing**: Test modules declare environment needs via pytest markers
+14. **Path-based testing**: Test modules automatically get environments based on file path
 15. **Unit testable**: Internal functions accept required parameters for testing
 
 ## **Testing Strategy**

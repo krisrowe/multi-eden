@@ -1,6 +1,9 @@
 """
 Multi-Environment SDK Task Collection
 """
+
+# Pytest plugin registration
+pytest_plugins = ["multi_eden.pytest_plugin"]
 from invoke import Collection
 
 # Create namespace and collect tasks from each submodule

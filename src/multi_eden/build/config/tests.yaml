@@ -1,49 +1,31 @@
-# This file defines test modes and their execution configuration.
-# Test modes are selected via test suite selection (unit, api, firestore, ai).
+# This file defines test suites and their execution configuration.
+# Test suites are selected via test suite selection (unit, ai, integration, api).
 
-modes:
+suites:
   unit:
     description: "Unit tests with mocked dependencies"
+    env: "unit"  # References environment layer from environments.yaml
     tests:
-      paths: ["unit", "providers", "api"]
-    env:
-      # Test mode provides complete config - no env needed
-      stub_ai: true
-      stub_db: true
-      test_api_in_memory: true
-      custom_auth_enabled: true
-      TEST_OMIT_INTEGRATION: true
-      JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"
-      ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
-      APP_ID: "multi-eden-sdk"
+      - "tests/unit"
+      - "tests/providers" 
+      - "tests/api"
     
   ai:
     description: "Integration tests with real AI API calls"
+    env: "ai"  # References environment layer from environments.yaml
     tests:
-      paths: ["ai"]
-    env:
-      # AI tests need real secrets for API calls
-      stub_ai: false
-      stub_db: true
-      test_api_in_memory: true
-      custom_auth_enabled: true
-      GEMINI_API_KEY: "secret:gemini-api-key"
-      JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"
-      ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
-      APP_ID: "multi-eden-sdk"
+      - "tests/ai"
     
-  db:
-    description: "Database tests with Firebase data provider"
+  integration:
+    description: "Integration tests that require external dependencies"
+    env: "api-test"  # References environment layer from environments.yaml
     tests:
-      paths: ["db", "providers"]
-    default-env: "db-testing"
-    env:
-      test_api_in_memory: true
+      - "tests/integration"
+      - "tests/providers"
     
   api:
     description: "API tests via HTTP (focus on network interface)"
+    env: "api-test"  # References environment layer from environments.yaml
     tests:
-      paths: ["api", "providers"]
-    default-env: "local"
-    env:
-      test_api_in_memory: false
+      - "tests/api"
+      - "tests/providers"

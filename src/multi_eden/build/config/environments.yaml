@@ -26,6 +26,11 @@ environments:
       TEST_API_IN_MEMORY: false
       TEST_API_URL: "http://localhost:8000"
   
+  integration-test:
+    inherits: "app"
+    env:
+      PROJECT_ID: "$.projects.dev"
+  
   local:
     inherits: "app"
     env:

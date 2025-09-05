@@ -25,4 +25,9 @@ setup(
         'google-cloud-secret-manager>=2.0.0',
         'pathlib2;python_version<"3.4"',  # pathlib is built-in in Python 3.4+
     ],
+    entry_points={
+        'pytest11': [
+            'multi_eden = multi_eden.pytest_plugin',
+        ],
+    },
 )

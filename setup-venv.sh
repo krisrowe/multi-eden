@@ -1,0 +1,67 @@
+#!/bin/bash
+# Common virtual environment setup logic
+# Used by both ./invoke and direct pytest usage
+
+set -e  # Exit on any error
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Change to the script directory (repo root)
+cd "$SCRIPT_DIR"
+
+# Function to create and set up virtual environment
+setup_venv() {
+    echo "🔧 Virtual environment not found. Setting up..."
+    
+    # Check if Python 3 is available
+    if ! command -v python3 &> /dev/null; then
+        echo "❌ Python 3 is not installed or not in PATH"
+        exit 1
+    fi
+    
+    # Create virtual environment
+    echo "🐍 Creating virtual environment..."
+    python3 -m venv venv
+    
+    # Activate virtual environment
+    echo "🔧 Activating virtual environment..."
+    source venv/bin/activate
+    
+    # Upgrade pip
+    echo "📦 Upgrading pip..."
+    pip install --upgrade pip
+    
+    # Install requirements (prioritize dev requirements if available)
+    if [ -f "requirements-dev.txt" ]; then
+        echo "📦 Installing development dependencies from requirements-dev.txt..."
+        pip install -r requirements-dev.txt
+    elif [ -f "requirements.txt" ]; then
+        echo "📦 Installing production dependencies from requirements.txt..."
+        pip install -r requirements.txt
+    else
+        echo "⚠️  No requirements files found"
+    fi
+    
+    # Install current package in development mode
+    if [ -f "setup.py" ]; then
+        echo "📦 Installing current package in development mode..."
+        pip install -e .
+    fi
+    
+    echo "✅ Virtual environment setup complete!"
+}
+
+# Check if virtual environment exists
+if [ ! -d "venv" ]; then
+    setup_venv
+else
+    # Activate existing virtual environment
+    source venv/bin/activate
+fi
+
+# Verify activation
+if [ -z "$VIRTUAL_ENV" ]; then
+    echo "❌ Failed to activate virtual environment" >&2
+    exit 1
+fi

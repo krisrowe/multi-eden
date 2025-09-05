@@ -10,9 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from invoke import task
-from ..config.test_mode import get_test_mode_config
 from multi_eden.build.tasks.config.setup import get_task_default_env
-from multi_eden.build.tasks.config.decorators import requires_config_env
 import os
 import logging
 
@@ -80,14 +78,14 @@ def _get_test_paths(suite: str) -> list:
         with open(tests_yaml, 'r') as f:
             config = yaml.safe_load(f)
         
-        suite_config = config.get('modes', {}).get(suite, {})
-        test_paths = suite_config.get('tests', {}).get('paths', [])
+        suite_config = config.get('suites', {}).get(suite, {})
+        test_paths = suite_config.get('tests', [])
         
         # If providers is in the list, ensure it runs FIRST
-        if 'providers' in test_paths and test_paths.index('providers') != 0:
+        if 'tests/providers' in test_paths and test_paths.index('tests/providers') != 0:
             test_paths = test_paths.copy()
-            test_paths.remove('providers')
-            test_paths.insert(0, 'providers')
+            test_paths.remove('tests/providers')
+            test_paths.insert(0, 'tests/providers')
             
         return test_paths
     except Exception as e:
@@ -103,7 +101,6 @@ def _get_test_paths(suite: str) -> list:
     'show_config': 'Show detailed configuration including partial secret values',
     'quiet': 'Suppress configuration display (show only test results)'
 })
-@requires_config_env("unit")
 def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config=False, quiet=False):
     """
     Run tests for a specific suite.
@@ -121,9 +118,9 @@ def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config
         print("   Available suites: unit, ai, firestore, api")
         sys.exit(1)
     
-    # Load test mode config once
+    # Load test suite config once
     test_config = None
-    # Environment loading is handled by the @requires_config_env decorator
+    # Environment loading is handled by the pytest plugin
     # Just get test paths for pytest - no need to reload full test config
     test_paths = _get_test_paths(suite) if suite else None
     
