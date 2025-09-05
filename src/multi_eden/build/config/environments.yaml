@@ -1,50 +1,56 @@
-# Multi-Eden SDK Default Environment Templates
-# Contains generic environment configurations without app-specific data
-# Apps can override these in their config/env/settings.yaml
-
 environments:
-  # Local testing - out-of-process API (port determined by task: server=8000, docker=8001)
-  local:
+  app:  # Renamed from 'base' to avoid confusion with base_layer parameter
     env:
-      custom_auth_enabled: true
-      stub_ai: true
-      stub_db: true
-      local: true        # Allow local override secrets
-      port: 8000         # API server port
-      GEMINI_API_KEY: "fake-local-gemini-key"
-      JWT_SECRET_KEY: "local-jwt-secret"
-      ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
       APP_ID: "multi-eden-sdk"
-
-  # Local Docker - out-of-process API in Docker container on port 8001
-  local-docker:
+      CUSTOM_AUTH_ENABLED: true
+  
+  ai:
     env:
-      custom_auth_enabled: true
-      stub_ai: true
-      stub_db: true
-      local: true        # Allow local override secrets
-      port: 8001         # Docker container port
-      GEMINI_API_KEY: "fake-docker-gemini-key"
-      JWT_SECRET_KEY: "docker-jwt-secret"
-      ALLOWED_USER_EMAILS: "test-user@docker.dev"
-      APP_ID: "multi-eden-sdk"
-        
-  # Cloud environment templates (project_id must be set by app config)
-  # Development cloud environment
-  dev:
-    env:
-      custom_auth_enabled: true
-      stub_ai: false     # ai_provider: "real"
-      stub_db: false     # data_provider: "firestore"
       GEMINI_API_KEY: "secret:gemini-api-key"
-      JWT_SECRET_KEY: "secret:jwt-secret-key"
-      ALLOWED_USER_EMAILS: "secret:allowed-user-emails"
-      APP_ID: "multi-eden-sdk"
-    
-  # Production cloud environment
-  prod:
+  
+  unit:
+    inherits: "app"
     env:
-      custom_auth_enabled: true
-      stub_ai: false     # ai_provider: "real"
-      stub_db: false     # data_provider: "firestore"
-      # No local: true - requires project_id for Secret Manager
+      JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"  # Mock value
+      STUB_AI: true
+      STUB_DB: true
+      TEST_API_IN_MEMORY: true
+      TEST_OMIT_INTEGRATION: true
+  
+  api-test:
+    inherits: "app"
+    env:
+      JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"  # Mock value
+      STUB_AI: true
+      STUB_DB: true
+      TEST_API_IN_MEMORY: false
+      TEST_API_URL: "http://localhost:8000"
+  
+  local:
+    inherits: "app"
+    env:
+      STUB_AI: true
+      STUB_DB: true
+      LOCAL: true
+      PORT: 8000
+      GEMINI_API_KEY: "fake-local-gemini-key"  # Mock value
+      JWT_SECRET_KEY: "local-jwt-secret"  # Mock value
+      ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
+  
+  dev:
+    inherits: "app"
+    env:
+      STUB_AI: false
+      STUB_DB: false
+      GEMINI_API_KEY: "secret:gemini-api-key"  # Real secret
+      JWT_SECRET_KEY: "secret:jwt-secret-key"  # Real secret
+      ALLOWED_USER_EMAILS: "secret:allowed-user-emails"  # Real secret
+  
+  prod:
+    inherits: "app"
+    env:
+      STUB_AI: false
+      STUB_DB: false
+      GEMINI_API_KEY: "secret:gemini-api-key"  # Real secret
+      JWT_SECRET_KEY: "secret:jwt-secret-key"  # Real secret
+      ALLOWED_USER_EMAILS: "secret:allowed-user-emails"  # Real secret

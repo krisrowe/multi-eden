@@ -103,11 +103,7 @@ def _get_test_paths(suite: str) -> list:
     'show_config': 'Show detailed configuration including partial secret values',
     'quiet': 'Suppress configuration display (show only test results)'
 })
-@requires_config_env(
-    dynamics={
-        'TEST_API_URL': get_test_api_url
-    }
-)
+@requires_config_env("unit")
 def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config=False, quiet=False):
     """
     Run tests for a specific suite.

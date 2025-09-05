@@ -6,7 +6,6 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any
 
-from .secrets import SecretsConfig, Authorization
 from .providers import ProviderConfig
 from .host import HostConfig
 from .loading import load_env
@@ -26,8 +25,6 @@ def get_tasks_config() -> Dict[str, Any]:
 
 
 __all__ = [
-    'SecretsConfig',
-    'Authorization',
     'ProviderConfig', 
     'HostConfig',
     'load_env',

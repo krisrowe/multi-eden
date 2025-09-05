@@ -1,416 +1,328 @@
 """
-Dynamic environment loading system using loading.yaml configuration.
-
-This system allows for flexible, configurable layering of environment variables
-from multiple sources with customizable priority and conditions.
+Environment loading system with inheritance, caching, and clean state management.
 """
-
 import os
-import sys
 import logging
 import yaml
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple, Callable
-from string import Template
+from typing import Dict, List, Optional, Tuple, Any
+
+from .exceptions import (
+    EnvironmentLoadError,
+    EnvironmentNotFoundError,
+    SecretUnavailableException,
+    ProjectIdNotFoundException,
+    ProjectsFileNotFoundException
+)
+from .secrets import get_secret
 
 logger = logging.getLogger(__name__)
 
-
-class LoadingLayer:
-    """Represents a single layer in the environment loading process."""
-    
-    def __init__(self, config: Dict[str, Any]):
-        self.name = config['name']
-        self.file = config.get('file')
-        self.path = config.get('path')
-        self.condition = config.get('condition')
-        self.layer_type = config.get('type', 'file')
-        self.description = config.get('description', '')
-    
-    def should_load(self, context: Dict[str, Any]) -> bool:
-        """Check if this layer should be loaded based on condition."""
-        if not self.condition:
-            return True
-        
-        # Simple condition evaluation (can be extended)
-        try:
-            return eval(self.condition, {"__builtins__": {}}, context)
-        except Exception as e:
-            logger.warning(f"Failed to evaluate condition '{self.condition}' for layer '{self.name}': {e}")
-            return False
-    
-    def load_values(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Load values from this layer."""
-        if self.layer_type == 'callback':
-            return self._load_from_callback(context)
-        else:
-            return self._load_from_file(context)
-    
-    def _load_from_file(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Load values from a YAML file."""
-        if not self.file or not self.path:
-            return {}
-        
-        try:
-            # Resolve file path
-            file_path = self._resolve_file_path(self.file)
-            if not file_path.exists():
-                logger.debug(f"File not found for layer '{self.name}': {file_path}")
-                return {}
-            
-            # Load YAML file
-            with open(file_path, 'r') as f:
-                data = yaml.safe_load(f) or {}
-            
-            # Resolve path within YAML
-            resolved_path = self._resolve_yaml_path(self.path, context)
-            values = self._get_nested_value(data, resolved_path)
-            
-            if not isinstance(values, dict):
-                logger.debug(f"Path '{resolved_path}' in layer '{self.name}' does not contain a dictionary")
-                return {}
-            
-            logger.debug(f"Loaded {len(values)} values from layer '{self.name}'")
-            return values
-            
-        except Exception as e:
-            logger.warning(f"Failed to load layer '{self.name}': {e}")
-            return {}
-    
-    def _process_value(self, value: Any, context: Dict[str, Any]) -> Any:
-        """Process value with different source schemes (secret:, task-func:, etc.)."""
-        if not isinstance(value, str):
-            return value
-        
-        if value.startswith('secret:'):
-            secret_name = value[7:]  # Remove 'secret:' prefix
-            return self._get_secret_from_manager(secret_name)
-        elif value.startswith('task-func:'):
-            func_name = value[10:]  # Remove 'task-func:' prefix
-            return self._get_task_function_value(func_name, context)
-        else:
-            return value
-    
-    def _get_task_function_value(self, func_name: str, context: Dict[str, Any]) -> str:
-        """Execute task function and return its value."""
-        dynamics = context.get('dynamics', {})
-        
-        if func_name not in dynamics:
-            raise ValueError(f"Function not found in dynamics: {func_name}")
-        
-        try:
-            func = dynamics[func_name]
-            if not callable(func):
-                raise ValueError(f"Not a callable function: {func_name}")
-            
-            # Execute function
-            result = func()
-            
-            # Handle different return types
-            if isinstance(result, list) and result:
-                # Assume first item is the value we want
-                return str(result[0][1]) if len(result[0]) > 1 else str(result[0])
-            elif isinstance(result, str):
-                return result
-            else:
-                return str(result)
-                
-        except Exception as e:
-            raise ValueError(f"Task function execution failed: {e}")
-    
-    def _get_secret_from_manager(self, secret_name: str) -> str:
-        """Load secret from configured secrets manager."""
-        try:
-            from multi_eden.build.secrets.factory import get_secrets_manager
-            secrets_manager = get_secrets_manager()
-            
-            logger.debug(f"Loading secret '{secret_name}' from secrets manager")
-            response = secrets_manager.get_secret(secret_name, show=True)
-            
-            if response.meta.success and response.secret:
-                return response.secret.value
-            else:
-                error_msg = response.meta.error.message if response.meta.error else "Unknown error"
-                raise ValueError(f"Failed to load secret '{secret_name}': {error_msg}")
-                
-        except Exception as e:
-            raise ValueError(f"Failed to load secret '{secret_name}' from secrets manager: {e}")
-    
-    def _resolve_file_path(self, file_path: str) -> Path:
-        """Resolve file path to absolute path."""
-        if os.path.isabs(file_path):
-            return Path(file_path)
-        
-        # Handle {cwd}/ prefix for current working directory paths
-        if file_path.startswith('{cwd}/'):
-            cwd_relative_path = file_path[6:]  # Remove '{cwd}/' prefix
-            return Path.cwd() / cwd_relative_path
-        
-        # All other paths are relative to the loading.yaml file location
-        return Path(__file__).parent / file_path
-    
-    def _resolve_yaml_path(self, path_template: str, context: Dict[str, Any]) -> str:
-        """Resolve YAML path template with context variables."""
-        try:
-            # Use string format instead of Template for {} syntax
-            return path_template.format(**context)
-        except Exception as e:
-            logger.warning(f"Failed to resolve path template '{path_template}': {e}")
-            return path_template
-    
-    def _get_nested_value(self, data: Dict[str, Any], path: str) -> Any:
-        """Get nested value from dictionary using dot notation."""
-        keys = path.split('.')
-        current = data
-        
-        for key in keys:
-            if isinstance(current, dict) and key in current:
-                current = current[key]
-            else:
-                return None
-        
-        return current
+# Global state tracking
+_last_load = None  # Track last successful load: {"params": {...}, "loaded_vars": {...}}
 
 
-class DynamicEnvironmentLoader:
-    """Dynamic environment loader using loading.yaml configuration."""
+def load_env(top_layer: str, base_layer: Optional[str] = None, files: Optional[List[str]] = None, force_reload: bool = False) -> Dict[str, Tuple[str, str]]:
+    """
+    Load environment with optional base layer and configurable file sources.
     
-    def __init__(self, config_file: str = None):
-        """Initialize the loader with configuration file."""
-        if config_file is None:
-            config_file = Path(__file__).parent / "loading.yaml"
+    Args:
+        top_layer: Primary environment layer to load
+        base_layer: Optional base layer to load first
+        files: List of config files to load (defaults to SDK + app configs)
+        force_reload: Force reload even if same environment already loaded
         
-        self.config_file = Path(config_file)
-        self.layers = []
-        self.settings = {}
-        self._load_config()
+    Returns:
+        Dictionary of loaded variables with source info: {var_name: (value, source)}
+    """
+    if files is None:
+        # Default file sources
+        files = [
+            "environments.yaml",  # SDK environments
+            "{cwd}/config/environments.yaml"  # App environments
+        ]
     
-    def _load_config(self):
-        """Load the loading.yaml configuration."""
-        try:
-            with open(self.config_file, 'r') as f:
-                config = yaml.safe_load(f) or {}
-            
-            # Load layers (preserve YAML order)
-            layers_config = config.get('layers', [])
-            self.layers = [LoadingLayer(layer_config) for layer_config in layers_config]
-            
-            # Load settings
-            self.settings = config.get('settings', {})
-            
-            logger.debug(f"Loaded {len(self.layers)} layers from {self.config_file}")
-            
-        except Exception as e:
-            logger.error(f"Failed to load configuration from {self.config_file}: {e}")
-            raise
+    # Check if this is the same load request as current
+    if not force_reload and _is_same_load(top_layer, base_layer, files):
+        logger.debug(f"Skipping reload - same environment already loaded: '{top_layer}'")
+        return {}  # Return empty dict since nothing changed
     
-    def load_environment(self, 
-                        env_name: Optional[str] = None,
-                        test_mode: Optional[str] = None,
-                        task_name: Optional[str] = None,
-                        dynamics: Optional[Dict[str, Callable]] = None,
-                        quiet: bool = False) -> Dict[str, Tuple[str, str]]:
-        """
-        Load environment variables using the configured layers.
+    return _load_env(top_layer, base_layer, files)
+
+
+def _load_env(top_layer: str, base_layer: Optional[str], files: List[str]) -> Dict[str, Tuple[str, str]]:
+    """
+    Internal load environment function with required parameters.
+    
+    Args:
+        top_layer: Primary environment layer to load
+        base_layer: Optional base layer to load first
+        files: List of config files to load
         
         Returns:
-            Dict mapping variable names to (value, source) tuples
-        """
-        # Build context for layer evaluation
-        context = {
-            'env_name': env_name,
-            'test_mode': test_mode,
-            'task_name': task_name,
-            'dynamics': dynamics
-        }
-        
-        # Track loaded variables: name -> (value, source)
-        loaded_vars = {}
-        
-        # Process layers in YAML order (later layers overwrite earlier ones)
-        for layer in self.layers:
-            if not layer.should_load(context):
-                logger.debug(f"Skipping layer '{layer.name}' due to condition")
-                continue
-            
-            try:
-                layer_values = layer.load_values(context)
-                
-                # Merge layer values (later layers overwrite earlier layers)
-                for key, value in layer_values.items():
-                    env_var_name = key.upper()
-                    # Process value (handle secret:, task-func:, etc.)
-                    processed_value = layer._process_value(value, context)
-                    loaded_vars[env_var_name] = (processed_value, layer.name)
-                    logger.debug(f"Layer '{layer.name}' set {env_var_name}={processed_value}")
-                
-            except Exception as e:
-                logger.warning(f"Failed to process layer '{layer.name}': {e}")
-        
-        # Process loaded variables and set environment variables
-        processed_vars = []
-        failed_vars = []
-        
-        for name, (value, source) in loaded_vars.items():
-            try:
-                # Check if environment variable already exists (highest priority)
-                if self.settings.get('env_var_override', True) and name in os.environ:
-                    env_value = os.environ[name]
-                    processed_vars.append((name, env_value, 'env-var'))
-                    logger.debug(f"Using existing {name}={env_value} (from env-var)")
-                    continue
-                
-                # Handle secret: prefix
-                if isinstance(value, str) and value.startswith('secret:'):
-                    secret_name = value[7:]  # Remove 'secret:' prefix
-                    value = self._get_secret_from_manager(secret_name)
-                    source = 'secret'
-                
-                # Convert value to string for environment variable
-                if isinstance(value, bool):
-                    env_value = 'true' if value else 'false'
-                else:
-                    env_value = str(value)
-                
-                # Set environment variable
-                os.environ[name] = env_value
-                processed_vars.append((name, env_value, source))
-                logger.debug(f"Set {name}={env_value} (from {source})")
-                
-            except Exception as e:
-                failed_vars.append((name, e))
-                logger.debug(f"Failed to process {name}: {e}")
-        
-        # Display results if not quiet
-        if not quiet and self.settings.get('display_loaded_vars', True):
-            self._display_results(processed_vars, failed_vars, context)
-        
-        return {name: (value, source) for name, value, source in processed_vars}
-    
-    def _get_secret_from_manager(self, secret_name: str) -> str:
-        """Load secret from configured secrets manager."""
-        try:
-            from multi_eden.build.secrets.factory import get_secrets_manager
-            secrets_manager = get_secrets_manager()
-            
-            logger.debug(f"Loading secret '{secret_name}' from secrets manager")
-            response = secrets_manager.get_secret(secret_name, show=True)
-            
-            if response.meta.success and response.secret:
-                return response.secret.value
-            else:
-                error_msg = response.meta.error.message if response.meta.error else "Unknown error"
-                raise ValueError(f"Failed to load secret '{secret_name}': {error_msg}")
-                
-        except Exception as e:
-            raise ValueError(f"Failed to load secret '{secret_name}' from secrets manager: {e}")
-    
-    def _display_results(self, processed_vars: List[Tuple], failed_vars: List[Tuple], context: Dict[str, Any]):
-        """Display the results of environment loading."""
-        
-        # Configuration source table
-        print("\n" + "=" * 50, file=sys.stderr)
-        print("🔧 CONFIGURATION SOURCE", file=sys.stderr)
-        print("=" * 50, file=sys.stderr)
-        
-        test_mode = context.get('test_mode')
-        env_name = context.get('env_name')
-        task_name = context.get('task_name')
-        
-        if test_mode:
-            print(f"Test Suite: {test_mode}", file=sys.stderr)
-            print(f"  └─ As per: invoke test <suite>", file=sys.stderr)
-            print(f"  └─ Source: tests.yaml", file=sys.stderr)
-        
-        if task_name:
-            print(f"Task: {task_name}", file=sys.stderr)
-            print(f"  └─ Source: tasks.yaml", file=sys.stderr)
-        
-        if env_name:
-            print(f"Config Environment: {env_name}", file=sys.stderr)
-        else:
-            print("Config Environment: (none)", file=sys.stderr)
-        
-        print("=" * 50, file=sys.stderr)
-        
-        # Environment variables table
-        print("\n" + "=" * 76, file=sys.stderr)
-        print("🔧 ENVIRONMENT VARIABLES", file=sys.stderr)
-        print("=" * 76, file=sys.stderr)
-        
-        # Sort variables by name for consistent display
-        processed_vars.sort(key=lambda x: x[0])
-        
-        # Combine all variables for sorted display
-        all_vars = []
-        
-        # Add successful variables
-        for name, value, source in processed_vars:
-            # Limit value to 24 chars max to ensure space before SOURCE column
-            if len(value) > 24:
-                display_value = value[:21] + "..."
-            else:
-                display_value = value
-            all_vars.append((name, "✅", display_value, source))
-        
-        # Add failed variables
-        for name, error in failed_vars:
-            all_vars.append((name, "❌", "(error)", "unknown"))
-        
-        # Show column headers and rows only if there are variables
-        if all_vars:
-            print(f"{'VARIABLE':<25} {'VALUE':<25} {'SOURCE':<25}", file=sys.stderr)
-            print("-" * 76, file=sys.stderr)
-            
-            # Sort all variables by name and display
-            all_vars.sort(key=lambda x: x[0])
-            for name, status, value, source in all_vars:
-                print(f"{status} {name:<23} {value:<24} {source:<25}", file=sys.stderr)
-        
-        print("=" * 76, file=sys.stderr)
-
-
-# Global loader instance
-_loader = None
-
-def get_dynamic_loader() -> DynamicEnvironmentLoader:
-    """Get the global dynamic loader instance."""
-    global _loader
-    if _loader is None:
-        _loader = DynamicEnvironmentLoader()
-    return _loader
-
-def load_env(env_name: Optional[str] = None,
-             test_mode: Optional[str] = None,
-             task_name: Optional[str] = None,
-             dynamics: Optional[Dict[str, Callable]] = None,
-             quiet: bool = False) -> Dict[str, Tuple[str, str]]:
+        Dictionary of loaded variables with source info
     """
-    Dynamic environment loading function using loading.yaml configuration.
+    logger.debug(f"Loading environment '{top_layer}' from files: {files}")
+    if base_layer:
+        logger.debug(f"With base environment layer: '{base_layer}'")
     
-    Loads environment variables from multiple sources with defined precedence.
-    """
-    loader = get_dynamic_loader()
-    return loader.load_environment(
-        env_name=env_name,
-        test_mode=test_mode,
-        task_name=task_name,
-        dynamics=dynamics,
-        quiet=quiet
+    # Load and merge configuration files
+    merged_config = _load_and_merge_files(files)
+    
+    # Process inheritance and load new variables
+    env_config = _process_inheritance(top_layer, base_layer, merged_config)
+    new_vars = _load_environment_variables(env_config, top_layer)
+    
+    # Load the staged variables (clear our vars, load new vars)
+    loaded_vars = _load_staged_vars(new_vars)
+    
+    # Commit the successful load
+    _commit_load(top_layer, base_layer, files, loaded_vars)
+    
+    # Return the loaded variables with source info
+    return {name: (value, source) for name, (value, source) in new_vars.items()}
+
+
+def _is_same_load(top_layer: str, base_layer: Optional[str], files: List[str]) -> bool:
+    """Check if this is the same load request as the current one."""
+    if _last_load is None:
+        return False
+    
+    # Resolve the actual base layer that will be used
+    resolved_base_layer = _resolve_base_layer(base_layer)
+    
+    last_params = _last_load["params"]
+    return (
+        last_params["top_layer"] == top_layer and
+        last_params["base_layer"] == resolved_base_layer and  # Compare resolved values
+        last_params["files"] == files
     )
 
 
-def _get_app_config() -> Optional[Dict[str, Any]]:
-    """Get application configuration from app.yaml."""
-    from pathlib import Path
-    import yaml
+def _resolve_base_layer(base_layer: Optional[str]) -> Optional[str]:
+    """Resolve the actual base layer that will be used."""
+    if base_layer is not None:
+        return base_layer
+    return os.environ.get("BASE_ENV_LAYER")
+
+
+def _clear_our_vars():
+    """Clear only the variables that WE previously loaded."""
+    if _last_load is None:
+        return
     
-    app_yaml_path = Path.cwd() / "config" / "app.yaml"
-    if not app_yaml_path.exists():
-        return None
+    for var_name in _last_load["loaded_vars"]:
+        if var_name in os.environ:
+            del os.environ[var_name]
+
+
+def _load_staged_vars(staged_vars: Dict[str, Tuple[str, str]]) -> Dict[str, str]:
+    """Load staged variables into os.environ after clearing our previous vars."""
+    # Clear our previously loaded variables
+    _clear_our_vars()
     
-    try:
-        with open(app_yaml_path, 'r') as f:
-            return yaml.safe_load(f) or {}
-    except Exception:
-        return None
+    # Load staged variables into os.environ
+    for var_name, (value, source) in staged_vars.items():
+        os.environ[var_name] = value
+    
+    # Return the loaded variables for tracking
+    return {var_name: value for var_name, (value, source) in staged_vars.items()}
+
+
+def _commit_load(top_layer: str, base_layer: Optional[str], files: List[str], loaded_vars: Dict[str, str]):
+    """Commit a successful load operation."""
+    global _last_load
+    _last_load = {
+        "params": {
+            "top_layer": top_layer,
+            "base_layer": _resolve_base_layer(base_layer),  # Store resolved value
+            "files": files
+        },
+        "loaded_vars": loaded_vars
+    }
+
+
+def _load_and_merge_files(files: List[str]) -> Dict[str, Any]:
+    """Load and merge multiple configuration files."""
+    merged_environments = {}
+    
+    for file_path in files:
+        # Resolve file path (handle {cwd} placeholder)
+        resolved_path = file_path.replace("{cwd}", str(Path.cwd()))
+        if not resolved_path.startswith("/"):
+            # Relative path - resolve from SDK config directory
+            sdk_root = Path(__file__).parent
+            resolved_path = sdk_root / resolved_path
+        
+        logger.debug(f"Loading config file: {resolved_path}")
+        
+        if not Path(resolved_path).exists():
+            logger.debug(f"Config file not found: {resolved_path}")
+            continue
+        
+        try:
+            with open(resolved_path, 'r') as f:
+                config = yaml.safe_load(f) or {}
+            
+            if 'environments' in config:
+                # Merge environments (later files override earlier ones)
+                for env_name, env_config in config['environments'].items():
+                    if env_name in merged_environments:
+                        # Merge app overrides into SDK defaults
+                        merged_environments[env_name]['env'].update(env_config.get('env', {}))
+                    else:
+                        # Add new environment
+                        merged_environments[env_name] = env_config
+                
+                logger.debug(f"Loaded {len(config['environments'])} environments from {resolved_path}")
+        
+        except Exception as e:
+            logger.error(f"Failed to load config file {resolved_path}: {e}")
+            raise EnvironmentLoadError(f"Failed to load config file {resolved_path}: {e}")
+    
+    return {'environments': merged_environments}
+
+
+def _process_inheritance(top_layer: str, base_layer: Optional[str], merged_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Process environment inheritance with optional base layer."""
+    loaded_layers = set()  # Track loaded layers in this call
+    
+    def _load_layer(layer_name: str) -> Dict[str, Any]:
+        if layer_name in loaded_layers:
+            logger.warning(f"Circular dependency detected: {layer_name} already loaded")
+            return {}  # Return empty config to break cycle
+        
+        loaded_layers.add(layer_name)
+        logger.debug(f"Loading layer '{layer_name}'")
+        
+        if layer_name not in merged_config['environments']:
+            raise EnvironmentNotFoundError(f"Environment '{layer_name}' not found")
+        
+        env_config = merged_config['environments'][layer_name]
+        final_config = {'env': {}}
+        
+        # Load base layer first if specified
+        if base_layer and base_layer != layer_name:
+            logger.debug(f"Loading base environment layer: '{base_layer}'")
+            base_config = _load_layer(base_layer)
+            final_config['env'].update(base_config.get('env', {}))
+            logger.debug(f"Applied {len(base_config.get('env', {}))} variables from base layer '{base_layer}'")
+        
+        # Process inheritance
+        if 'inherits' in env_config:
+            parent_name = env_config['inherits']
+            logger.debug(f"Layer '{layer_name}' inherits from '{parent_name}'")
+            parent_config = _load_layer(parent_name)
+            final_config['env'].update(parent_config.get('env', {}))
+            logger.debug(f"Inherited {len(parent_config.get('env', {}))} variables from '{parent_name}'")
+        
+        # Apply current layer's config (overrides inherited)
+        current_env = env_config.get('env', {})
+        final_config['env'].update(current_env)
+        logger.debug(f"Applied {len(current_env)} variables from layer '{layer_name}'")
+        
+        return final_config
+    
+    return _load_layer(top_layer)
+
+
+def _load_environment_variables(env_config: Dict[str, Any], layer_name: str) -> Dict[str, Tuple[str, str]]:
+    """Load environment variables with secret error handling."""
+    loaded_vars = {}
+    
+    for key, value in env_config.get('env', {}).items():
+        env_var_name = key.upper()
+        
+        # Check if already in os.environ (highest priority)
+        if env_var_name in os.environ:
+            existing_value = os.environ[env_var_name]
+            
+            # Process the value we would have loaded to compare
+            try:
+                processed_value = _process_value(value)
+                
+                if existing_value == processed_value:
+                    logger.debug(f"Variable '{env_var_name}' already set to desired value - keeping existing")
+                else:
+                    logger.debug(f"Variable '{env_var_name}' already set to different value (wanted different) - keeping existing")
+                
+                loaded_vars[env_var_name] = (existing_value, 'os.environ')
+                continue
+                
+            except SecretUnavailableException as e:
+                logger.debug(f"Variable '{env_var_name}' already set - skipping secret processing due to error: {e}")
+                loaded_vars[env_var_name] = (existing_value, 'os.environ')
+                continue
+            except Exception as e:
+                logger.debug(f"Variable '{env_var_name}' already set - skipping processing due to error: {e}")
+                loaded_vars[env_var_name] = (existing_value, 'os.environ')
+                continue
+        
+        # Process new value (not in os.environ)
+        try:
+            processed_value = _process_value(value)
+            # Simple decision: if it's a secret, don't log the value
+            if isinstance(value, str) and value.startswith('secret:'):
+                logger.debug(f"Variable '{env_var_name}' not set - loading new secret value from layer '{layer_name}'")
+            else:
+                logger.debug(f"Variable '{env_var_name}' not set - loading new value '{processed_value}' from layer '{layer_name}'")
+            loaded_vars[env_var_name] = (processed_value, 'environment')
+        except SecretUnavailableException as e:
+            logger.error(f"Failed to load secret for {env_var_name}: {e}")
+            logger.debug(f"Variable '{env_var_name}' not set - skipping due to secret error")
+            # Don't set any value - continue loading other variables
+        except Exception as e:
+            logger.error(f"Failed to process {env_var_name}: {e}")
+            logger.debug(f"Variable '{env_var_name}' not set - skipping due to processing error")
+    
+    return loaded_vars
+
+
+def _process_value(value: Any) -> str:
+    """Process value with different source schemes (secret:, $.projects, etc.)."""
+    if not isinstance(value, str):
+        logger.debug(f"Converting non-string value to string: {value}")
+        return str(value)
+    
+    if value.startswith('secret:'):
+        secret_name = value[7:]  # Remove 'secret:' prefix
+        logger.debug(f"Processing secret reference: {value} -> {secret_name}")
+        return get_secret(secret_name)  # Uses cached version
+    elif value.startswith('$.projects.'):
+        # Handle project IDs from .projects file
+        env_name = value.replace('$.projects.', '')
+        project_id = _get_project_id_from_projects_file(env_name)
+        if project_id:
+            logger.debug(f"Processing project ID reference: {value} -> {project_id}")
+            return project_id
+        else:
+            raise ProjectIdNotFoundException(
+                f"Project ID not found for environment '{env_name}' in .projects file"
+            )
+    else:
+        logger.debug(f"Using literal value: {value}")
+        return value
+
+
+def _get_project_id_from_projects_file(env_name: str) -> str:
+    """Get project ID from .projects file for specific environment."""
+    projects_file = Path(".projects")
+    
+    if not projects_file.exists():
+        raise ProjectsFileNotFoundException(
+            f".projects file not found. Create it with: invoke register-project {env_name} your-project-id"
+        )
+    
+    with open(projects_file) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                if "=" in line:
+                    file_env, project_id = line.split("=", 1)
+                    if file_env.strip() == env_name:
+                        return project_id.strip()
+    
+    raise ProjectIdNotFoundException(
+        f"Environment '{env_name}' not found in .projects file. "
+        f"Add it with: invoke register-project {env_name} your-project-id"
+    )

@@ -1,57 +1,56 @@
 """
-Secrets configuration for build/deploy operations.
-
-This module loads secrets from JSON files during build/deploy/startup operations
-and is separate from the runtime config that uses environment variables.
+Process-level secret caching system for environment loading.
 """
-import json
-import os
-from pathlib import Path
-from typing import Dict, Any, List
+import logging
+from typing import Dict
 
-from .models import SecretsConfig, Authorization
+from .exceptions import SecretUnavailableException
+
+logger = logging.getLogger(__name__)
+
+# Module-level cache: secret_name -> value
+_secret_cache: Dict[str, str] = {}
 
 
-def load_secrets_from_file(secrets_path: Path) -> SecretsConfig:
-    """Load secrets from a JSON file.
+def get_secret(secret_name: str) -> str:
+    """
+    Get secret with process-level caching.
     
     Args:
-        secrets_path: Path to the secrets.json file
+        secret_name: Name of the secret to retrieve
         
     Returns:
-        SecretsConfig instance
+        Secret value
         
     Raises:
-        FileNotFoundError: If secrets file doesn't exist
-        json.JSONDecodeError: If secrets file is invalid JSON
-        ValueError: If secrets file is missing required fields
+        SecretUnavailableException: If secret cannot be loaded
     """
-    if not secrets_path.exists():
-        raise FileNotFoundError(f"Secrets file not found: {secrets_path}")
+    if secret_name in _secret_cache:
+        logger.debug(f"Using cached secret '{secret_name}'")
+        return _secret_cache[secret_name]
     
-    with open(secrets_path, 'r') as f:
-        config_dict = json.load(f)
-    
-    return SecretsConfig.from_dict(config_dict)
+    # Load from secrets manager - let any exception bubble up
+    logger.debug(f"Loading secret '{secret_name}' from secrets manager")
+    try:
+        from multi_eden.build.secrets.factory import get_secrets_manager
+        manager = get_secrets_manager()
+        response = manager.get_secret(secret_name, show=True)
+        
+        if response.meta.success and response.secret:
+            _secret_cache[secret_name] = response.secret.value
+            logger.debug(f"Successfully loaded and cached secret '{secret_name}'")
+            return response.secret.value
+        else:
+            raise SecretUnavailableException(f"Secret '{secret_name}' not found")
+            
+    except Exception as e:
+        logger.debug(f"Failed to load secret '{secret_name}': {e}")
+        # Re-raise as-is - let the calling code handle it
+        raise
 
 
-def load_secrets_from_env(env_name: str, repo_root: Path = None) -> SecretsConfig:
-    """Load secrets from environment-specific secrets.json file.
-    
-    Args:
-        env_name: Environment name (e.g., 'dev', 'prod', 'unit-testing')
-        repo_root: Repository root path, defaults to current working directory
-        
-    Returns:
-        SecretsConfig instance
-        
-    Raises:
-        FileNotFoundError: If secrets file doesn't exist
-        json.JSONDecodeError: If secrets file is invalid JSON
-        ValueError: If secrets file is missing required fields
-    """
-    if repo_root is None:
-        repo_root = Path.cwd()
-    
-    secrets_path = repo_root / 'config' / 'secrets' / env_name / 'secrets.json'
-    return load_secrets_from_file(secrets_path)
+def clear_secret_cache():
+    """Clear the secret cache (useful for testing)."""
+    global _secret_cache
+    _secret_cache.clear()
+    logger.debug("Secret cache cleared")
