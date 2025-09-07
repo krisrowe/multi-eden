@@ -47,10 +47,17 @@ def prompt(ctx, prompt_text, config_env=None, model='gemini-2.5-flash', groundin
         # Send the prompt
         response = service.process(prompt_text)
         
-        # Output the AI response content to stdout (pipe-friendly)
-        if hasattr(response, 'content'):
-            print(response.content)
+        # Output the full JSON response to stdout
+        import json
+        if hasattr(response, 'model_dump'):
+            # Pydantic model - convert to dict then JSON
+            response_dict = response.model_dump()
+            print(json.dumps(response_dict, indent=2))
+        elif hasattr(response, 'dict'):
+            # Pydantic model with dict() method
+            print(json.dumps(response.dict(), indent=2))
         else:
+            # Fallback to string representation
             print(str(response))
         
         return True
