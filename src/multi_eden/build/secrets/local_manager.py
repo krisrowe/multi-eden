@@ -34,6 +34,9 @@ def loads_secrets(response_class):
             # Extract passphrase from kwargs or use None
             passphrase = kwargs.get('passphrase', None)
             
+            # Extract throw_not_found from kwargs
+            throw_not_found = kwargs.get('throw_not_found', False)
+            
             try:
                 # Validate cached key exists (handles KEY_NOT_SET)
                 self._validate_cached_key_exists(passphrase)
@@ -45,6 +48,12 @@ def loads_secrets(response_class):
                 return func(self, secrets_manifest, *args, **kwargs)
                 
             except PassphraseRequiredException as e:
+                if throw_not_found:
+                    from multi_eden.build.config.exceptions import NoKeyCachedForLocalSecretsException
+                    # Extract secret_name from args (it's the first argument after secrets_manifest)
+                    secret_name = args[0] if len(args) > 0 else 'unknown'
+                    raise NoKeyCachedForLocalSecretsException(f"Local secrets require a cached decryption key but none is available", secret_name=secret_name)
+                
                 from .models import SecretsManagerMetaResponse, ErrorInfo
                 error_meta = SecretsManagerMetaResponse(
                     success=False,
@@ -463,7 +472,7 @@ class LocalSecretsManager(SecretsManager):
             raise
     
     @loads_secrets(GetSecretResponse)
-    def get_secret(self, secrets_manifest: SecretsManifest, secret_name: str, passphrase: Optional[str] = None, show: bool = False) -> GetSecretResponse:
+    def get_secret(self, secrets_manifest: SecretsManifest, secret_name: str, passphrase: Optional[str] = None, show: bool = False, throw_not_found: bool = False) -> GetSecretResponse:
         """Get a secret value from local storage.
         
         Args:
@@ -483,6 +492,10 @@ class LocalSecretsManager(SecretsManager):
                 break
         
         if secret_def is None:
+            if throw_not_found:
+                from multi_eden.build.config.exceptions import LocalSecretNotFoundException
+                raise LocalSecretNotFoundException(f"Secret '{secret_name}' not found in local secrets file", secret_name=secret_name)
+            
             return GetSecretResponse(
                 meta=SecretsManagerMetaResponse(
                     success=False,

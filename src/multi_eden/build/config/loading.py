@@ -8,6 +8,13 @@ from typing import Dict, List, Optional, Any, Tuple
 import yaml
 
 from .exceptions import (
+    ConfigException,
+    ProjectIdRequiredException,
+    NoProjectIdForGoogleSecretsException,
+    NoKeyCachedForLocalSecretsException,
+    LocalSecretNotFoundException,
+    GoogleSecretNotFoundException,
+    # Legacy exceptions for backward compatibility
     EnvironmentLoadError,
     EnvironmentNotFoundError,
     SecretUnavailableException,
@@ -94,7 +101,9 @@ def _load_environment_variables_staged(env_config: Dict[str, Any], layer_name: s
                 logger.debug(f"Variable '{env_var_name}' not set - loading new value '{processed_value}' from layer '{layer_name}'")
             staged_vars[env_var_name] = (processed_value, 'environment')
             
-        except (SecretUnavailableException, ProjectIdNotFoundException, ProjectsFileNotFoundException) as e:
+        except (SecretUnavailableException, ProjectIdNotFoundException, ProjectsFileNotFoundException, 
+                NoKeyCachedForLocalSecretsException, LocalSecretNotFoundException, GoogleSecretNotFoundException, 
+                NoProjectIdForGoogleSecretsException, ProjectIdRequiredException) as e:
             if fail_on_secret_error:
                 logger.error(f"Failed to load configuration for {env_var_name}: {e}")
                 raise  # Re-raise the exception to fail the entire load
@@ -176,7 +185,7 @@ def _process_value(value: Any, var_name: str = None, layer_name: str = None) -> 
     if value.startswith('secret:'):
         secret_name = value[7:]  # Remove 'secret:' prefix
         logger.debug(f"Processing secret reference: {value} -> {secret_name}")
-        return get_secret(secret_name)  # Uses cached version
+        return get_secret(secret_name)  # Uses cached version, throws appropriate exceptions
     elif value.startswith('$.projects.'):
         # Handle project IDs from .projects file
         env_name = value.replace('$.projects.', '')
@@ -473,6 +482,8 @@ def _load_env(top_layer: str, base_layer: Optional[str], files: List[str]) -> Di
     
     # Return the loaded variables with source info
     return {name: (value, source) for name, (value, source) in new_vars.items()}
+
+
 
 
 

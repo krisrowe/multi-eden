@@ -9,7 +9,7 @@ import os
 import json
 from pathlib import Path
 from invoke import task
-from multi_eden.build.tasks.config.decorators import requires_config_env
+from multi_eden.build.tasks.config.decorators import requires_env_stack
 
 
 def get_repo_root():
@@ -39,7 +39,7 @@ def run_command(cmd, cwd=None, check=True, capture_output=False, env=None):
 
 
 @task
-@requires_config_env
+@requires_env_stack
 def docker_build(ctx, config_env=None):
     """
     Build local Docker image.
@@ -72,11 +72,10 @@ def docker_build(ctx, config_env=None):
 
 
 @task(help={
-    'config_env': 'Configuration environment to use (defaults to task default)',
     'port': 'Port to expose (default: 8001)',
     'container_name': 'Container name'
 })
-@requires_config_env
+@requires_env_stack
 def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app"):
     """
     Start local Docker API container.
@@ -179,9 +178,8 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
 
 
 @task(help={
-    'config_env': 'Configuration environment to use (defaults to task default)'
 })
-@requires_config_env
+@requires_env_stack
 def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
     """
     Start full stack with Docker Compose.
@@ -315,9 +313,8 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
 
 
 @task(help={
-    'config_env': 'Configuration environment to use (defaults to task default)'
 })
-@requires_config_env
+@requires_env_stack
 def compose_down(ctx, config_env=None):
     """
     Stop Docker Compose services.
@@ -343,9 +340,8 @@ def compose_down(ctx, config_env=None):
 
 
 @task(help={
-    'config_env': 'Configuration environment to use (defaults to task default)'
 })
-@requires_config_env
+@requires_env_stack
 def compose_logs(ctx, config_env=None):
     """
     View Docker Compose logs.
@@ -368,9 +364,8 @@ def compose_logs(ctx, config_env=None):
 
 
 @task(help={
-    'config_env': 'Configuration environment to use (defaults to task default)'
 })
-@requires_config_env
+@requires_env_stack
 def compose_restart(ctx, config_env=None):
     """
     Restart Docker Compose services.
@@ -396,9 +391,8 @@ def compose_restart(ctx, config_env=None):
 
 
 @task(help={
-    'config_env': 'Configuration environment to use (defaults to task default)'
 })
-@requires_config_env
+@requires_env_stack
 def docker_status(ctx, config_env=None):
     """
     Check Docker container status.
@@ -431,9 +425,8 @@ def docker_status(ctx, config_env=None):
 
 
 @task(help={
-    'config_env': 'Configuration environment to use (defaults to task default)'
 })
-@requires_config_env
+@requires_env_stack
 def docker_cleanup(ctx, config_env=None):
     """
     Clean up Docker resources.

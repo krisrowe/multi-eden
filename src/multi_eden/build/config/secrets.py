@@ -23,30 +23,22 @@ def get_secret(secret_name: str) -> str:
         Secret value
         
     Raises:
-        SecretUnavailableException: If secret cannot be loaded
+        ConfigException: If secret cannot be loaded (specific exception types)
     """
     if secret_name in _secret_cache:
         logger.debug(f"Using cached secret '{secret_name}'")
         return _secret_cache[secret_name]
     
-    # Load from secrets manager - let any exception bubble up
+    # Load from secrets manager with throw_not_found=True
     logger.debug(f"Loading secret '{secret_name}' from secrets manager")
-    try:
-        from multi_eden.build.secrets.factory import get_secrets_manager
-        manager = get_secrets_manager()
-        response = manager.get_secret(secret_name, show=True)
-        
-        if response.meta.success and response.secret:
-            _secret_cache[secret_name] = response.secret.value
-            logger.debug(f"Successfully loaded and cached secret '{secret_name}'")
-            return response.secret.value
-        else:
-            raise SecretUnavailableException(f"Secret '{secret_name}' not found", secret_name=secret_name)
-            
-    except Exception as e:
-        logger.debug(f"Failed to load secret '{secret_name}': {e}")
-        # Re-raise as-is - let the calling code handle it
-        raise
+    from multi_eden.build.secrets.factory import get_secrets_manager
+    manager = get_secrets_manager()
+    response = manager.get_secret(secret_name, show=True, throw_not_found=True)
+    
+    # If we get here, the secret was found successfully
+    _secret_cache[secret_name] = response.secret.value
+    logger.debug(f"Successfully loaded and cached secret '{secret_name}'")
+    return response.secret.value
 
 
 def clear_secret_cache():

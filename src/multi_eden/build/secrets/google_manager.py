@@ -52,7 +52,7 @@ class GoogleSecretsManager(SecretsManager):
             logger.debug(f"Google Secret Manager client initialized for project: {self.project_id}")
         return self._client
     
-    def get_secret(self, secret_name: str, passphrase: Optional[str] = None, show: bool = False) -> GetSecretResponse:
+    def get_secret(self, secret_name: str, passphrase: Optional[str] = None, show: bool = False, throw_not_found: bool = False) -> GetSecretResponse:
         """Get a secret value from Google Secret Manager.
         
         Args:
@@ -87,6 +87,16 @@ class GoogleSecretsManager(SecretsManager):
             
         except Exception as e:
             logger.warning(f"Failed to retrieve secret '{secret_name}' from Google Secret Manager: {e}")
+            
+            if throw_not_found:
+                # Check if it's a PROJECT_ID issue or missing secret
+                if "project" in str(e).lower() or "PROJECT_ID" in str(e) or "permission" in str(e).lower():
+                    from multi_eden.build.config.exceptions import NoProjectIdForGoogleSecretsException
+                    raise NoProjectIdForGoogleSecretsException(f"Google Secret Manager requires PROJECT_ID but none is available", secret_name=secret_name)
+                else:
+                    from multi_eden.build.config.exceptions import GoogleSecretNotFoundException
+                    raise GoogleSecretNotFoundException(f"Secret '{secret_name}' not found in Google Secret Manager", secret_name=secret_name)
+            
             return GetSecretResponse(
                 meta=SecretsManagerMetaResponse(
                     success=False,

@@ -8,24 +8,25 @@ environment configuration.
 import sys
 from pathlib import Path
 from invoke import task
-from multi_eden.build.config.loading import load_env as load_env_dynamic
+from multi_eden.build.tasks.config.decorators import requires_env_stack
+from multi_eden.build.config.exceptions import ConfigException
 
 
 @task(help={
     'prompt_text': 'The prompt to send to the AI model',
-    'config_env': 'Configuration environment to use (e.g., dev, local)',
     'model': 'AI model to use (default: gemini-2.5-flash)',
     'grounding': 'Enable Google Search grounding for the prompt',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging (sets LOG_LEVEL=DEBUG)'
 })
+@requires_env_stack("ai")  # Default to ai environment
 def prompt(ctx, prompt_text, config_env=None, model='gemini-2.5-flash', grounding=False, quiet=False, debug=False):
     """
     Send a prompt to an AI model.
     
     Examples:
         invoke prompt --message="What is the capital of France?"
-        invoke prompt --message="Explain quantum computing" --config-env=static
+        invoke prompt --message="Explain quantum computing" --config-env=dev
         echo "Hello AI" | invoke prompt --message=-
     """
     
@@ -54,6 +55,9 @@ def prompt(ctx, prompt_text, config_env=None, model='gemini-2.5-flash', groundin
         
         return True
         
+    except ConfigException as e:
+        print(e.guidance, file=sys.stderr)
+        return False
     except Exception as e:
         print(f"❌ Failed to send prompt: {e}", file=sys.stderr)
         return False

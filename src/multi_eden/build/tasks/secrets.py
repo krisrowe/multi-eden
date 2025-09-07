@@ -1,13 +1,19 @@
 """Secrets management tasks.
 
-Simple task definitions that use the @requires_config_env decorator
+Simple task definitions that handle configuration errors with built-in guidance
 and delegate to secret_utils for the actual operations."""
 
 import sys
 import json
 from invoke import task
-from multi_eden.build.tasks.config.decorators import requires_config_env
+from multi_eden.build.config.exceptions import ConfigException
 from multi_eden.build.secrets.interface import PassphraseRequiredException, InvalidPassphraseException
+
+
+def _handle_config_error(e: ConfigException):
+    """Handle configuration errors with built-in guidance."""
+    print(e.guidance, file=sys.stderr)
+    sys.exit(1)
 
 
 def _call_manager_method(operation_name, method_name):
@@ -15,7 +21,10 @@ def _call_manager_method(operation_name, method_name):
     from multi_eden.build.secrets.factory import get_secrets_manager
     from multi_eden.build.secrets.secret_utils import create_unsupported_provider_response
     
-    manager = get_secrets_manager()
+    try:
+        manager = get_secrets_manager()
+    except ConfigException as e:
+        _handle_config_error(e)
     
     if not hasattr(manager, method_name):
         response = create_unsupported_provider_response(operation_name, manager.manager_type)
@@ -32,15 +41,12 @@ def _call_manager_method(operation_name, method_name):
 
 
 
-
 @task(help={
-    'config_env': 'Configuration environment to use (e.g., dev, local)',
     'passphrase': 'Passphrase for local secrets (optional, will prompt if not provided)',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging'
 })
-@requires_config_env
-def list(ctx, config_env=None, passphrase=None, quiet=False, debug=False):
+def list(ctx, passphrase=None, quiet=False, debug=False):
     """
     List all secrets in the configured store.
     
@@ -50,8 +56,11 @@ def list(ctx, config_env=None, passphrase=None, quiet=False, debug=False):
     """
     from multi_eden.build.secrets.factory import get_secrets_manager
     
-    manager = get_secrets_manager()
-    response = manager.list_secrets(passphrase)
+    try:
+        manager = get_secrets_manager()
+        response = manager.list_secrets(passphrase, throw_not_found=True)
+    except ConfigException as e:
+        _handle_config_error(e)
     
     print(response.model_dump_json(indent=2, exclude_none=True))
     
@@ -62,13 +71,11 @@ def list(ctx, config_env=None, passphrase=None, quiet=False, debug=False):
 @task(help={
     'secret_name': 'Name of the secret to retrieve',
     'show': 'Show the actual secret value (default: show hash)',
-    'config_env': 'Configuration environment to use (e.g., dev, local)',
     'passphrase': 'Passphrase for local secrets (optional, will prompt if not provided)',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging'
 })
-@requires_config_env
-def get(ctx, secret_name, show=False, config_env=None, passphrase=None, quiet=False, debug=False):
+def get(ctx, secret_name, show=False, passphrase=None, quiet=False, debug=False):
     """
     Get a specific secret value.
     
@@ -78,8 +85,11 @@ def get(ctx, secret_name, show=False, config_env=None, passphrase=None, quiet=Fa
     """
     from multi_eden.build.secrets.factory import get_secrets_manager
     
-    manager = get_secrets_manager()
-    response = manager.get_secret(secret_name, passphrase, show=show)
+    try:
+        manager = get_secrets_manager()
+        response = manager.get_secret(secret_name, passphrase, show=show)
+    except ConfigException as e:
+        _handle_config_error(e)
     
     print(response.model_dump_json(indent=2, exclude_none=True))
     
@@ -92,14 +102,12 @@ def get(ctx, secret_name, show=False, config_env=None, passphrase=None, quiet=Fa
     help={
         'secret_name': 'Name of the secret to set',
         'secret_value': 'Value to store (optional, will prompt if not provided)',
-        'config_env': 'Configuration environment to use (e.g., dev, local)',
         'passphrase': 'Passphrase for local secrets (optional, will prompt if not provided)',
         'quiet': 'Suppress configuration display',
         'debug': 'Enable debug logging'
     }
 )
-@requires_config_env
-def set(ctx, secret_name, secret_value=None, config_env=None, passphrase=None, quiet=False, debug=False):
+def set(ctx, secret_name, secret_value=None, passphrase=None, quiet=False, debug=False):
     """
     Set a secret value.
     
@@ -116,8 +124,11 @@ def set(ctx, secret_name, secret_value=None, config_env=None, passphrase=None, q
             print("❌ Secret value cannot be empty")
             sys.exit(1)
     
-    manager = get_secrets_manager()
-    response = manager.set_secret(secret_name, secret_value, passphrase)
+    try:
+        manager = get_secrets_manager()
+        response = manager.set_secret(secret_name, secret_value, passphrase)
+    except ConfigException as e:
+        _handle_config_error(e)
     
     print(response.model_dump_json(indent=2, exclude_none=True))
     
@@ -127,14 +138,12 @@ def set(ctx, secret_name, secret_value=None, config_env=None, passphrase=None, q
 
 @task(help={
     'secret_name': 'Name of the secret to delete',
-    'config_env': 'Configuration environment to use (e.g., dev, local)',
     'yes': 'Skip confirmation prompt',
     'passphrase': 'Passphrase for local secrets (optional, will prompt if not provided)',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging'
 })
-@requires_config_env
-def delete(ctx, secret_name, config_env=None, yes=False, passphrase=None, quiet=False, debug=False):
+def delete(ctx, secret_name, yes=False, passphrase=None, quiet=False, debug=False):
     """
     Delete a secret.
     
@@ -151,8 +160,11 @@ def delete(ctx, secret_name, config_env=None, yes=False, passphrase=None, quiet=
             print("❌ Operation cancelled")
             sys.exit(1)
     
-    manager = get_secrets_manager()
-    response = manager.delete_secret(secret_name, passphrase)
+    try:
+        manager = get_secrets_manager()
+        response = manager.delete_secret(secret_name, passphrase)
+    except ConfigException as e:
+        _handle_config_error(e)
     
     print(response.model_dump_json(indent=2, exclude_none=True))
     
@@ -162,13 +174,11 @@ def delete(ctx, secret_name, config_env=None, yes=False, passphrase=None, quiet=
 
 @task(help={
     'local_repo_folder': 'Local repository folder where secrets will be saved',
-    'config_env': 'Configuration environment to use (e.g., dev, local)',
     'passphrase': 'Passphrase for encrypted operations',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging'
 })
-@requires_config_env
-def download(ctx, local_repo_folder, config_env=None, passphrase=None, quiet=False, debug=False):
+def download(ctx, local_repo_folder, passphrase=None, quiet=False, debug=False):
     """
     Download secrets from the configured store to local encrypted files.
     
@@ -184,7 +194,10 @@ def download(ctx, local_repo_folder, config_env=None, passphrase=None, quiet=Fal
     """
     from multi_eden.build.secrets.secret_utils import download_secrets_operation
     
-    response = download_secrets_operation(local_repo_folder, config_env, passphrase=passphrase)
+    try:
+        response = download_secrets_operation(local_repo_folder, None, passphrase=passphrase)
+    except ConfigException as e:
+        _handle_config_error(e)
     
     print(response.model_dump_json(indent=2, exclude_none=True))
     
@@ -193,17 +206,18 @@ def download(ctx, local_repo_folder, config_env=None, passphrase=None, quiet=Fal
 
 
 @task(help={
-    'config_env': 'Configuration environment to use (e.g., dev, local)',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging'
 })
-@requires_config_env
-def get_cached_key(c, config_env=None, quiet=False, debug=False):
+def get_cached_key(c, quiet=False, debug=False):
     """Show current cached encryption key status and hash."""
     from multi_eden.build.secrets.factory import get_secrets_manager
     from multi_eden.build.secrets.secret_utils import create_unsupported_provider_response
     
-    manager = get_secrets_manager()
+    try:
+        manager = get_secrets_manager()
+    except ConfigException as e:
+        _handle_config_error(e)
     
     if not hasattr(manager, 'get_cached_key'):
         response = create_unsupported_provider_response("get-cached-key", manager.manager_type)
@@ -222,17 +236,18 @@ def get_cached_key(c, config_env=None, quiet=False, debug=False):
 
 @task(help={
     'passphrase': 'Passphrase to generate encryption key from',
-    'config_env': 'Configuration environment to use (e.g., dev, local)',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging'
 })
-@requires_config_env
-def set_cached_key(c, passphrase, config_env=None, quiet=False, debug=False):
+def set_cached_key(c, passphrase, quiet=False, debug=False):
     """Generate and cache encryption key from passphrase for local secrets."""
     from multi_eden.build.secrets.factory import get_secrets_manager
     from multi_eden.build.secrets.secret_utils import create_unsupported_provider_response
     
-    manager = get_secrets_manager()
+    try:
+        manager = get_secrets_manager()
+    except ConfigException as e:
+        _handle_config_error(e)
     
     # Only works with local manager
     if manager.manager_type != "local":
@@ -250,17 +265,18 @@ def set_cached_key(c, passphrase, config_env=None, quiet=False, debug=False):
 
 @task(help={
     'new_passphrase': 'New passphrase to use for encryption',
-    'config_env': 'Configuration environment to use (e.g., dev, local)',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging'
 })
-@requires_config_env
-def update_key(c, new_passphrase, config_env=None, quiet=False, debug=False):
+def update_key(c, new_passphrase, quiet=False, debug=False):
     """Update encryption key by re-encrypting all secrets with new passphrase."""
     from multi_eden.build.secrets.factory import get_secrets_manager
     from multi_eden.build.secrets.secret_utils import create_unsupported_provider_response
     
-    manager = get_secrets_manager()
+    try:
+        manager = get_secrets_manager()
+    except ConfigException as e:
+        _handle_config_error(e)
     
     # Only works with local manager
     if manager.manager_type != "local":
@@ -278,16 +294,17 @@ def update_key(c, new_passphrase, config_env=None, quiet=False, debug=False):
 
 @task(help={
     'force': 'Skip confirmation prompt and force clear all secrets',
-    'config_env': 'Configuration environment to use (e.g., dev, local)',
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging'
 })
-@requires_config_env
-def clear(c, force=False, config_env=None, quiet=False, debug=False):
+def clear(c, force=False, quiet=False, debug=False):
     """Clear all secrets from the configured store."""
     from multi_eden.build.secrets.factory import get_secrets_manager
     
-    manager = get_secrets_manager()
+    try:
+        manager = get_secrets_manager()
+    except ConfigException as e:
+        _handle_config_error(e)
     
     # Interactive confirmation unless --force
     if not force:

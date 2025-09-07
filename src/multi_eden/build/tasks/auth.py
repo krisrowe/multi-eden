@@ -9,14 +9,14 @@ from pathlib import Path
 from invoke import task
 from multi_eden.run.auth.testing import get_static_test_user_token
 
-from .config.decorators import requires_config_env
+from .config.decorators import requires_env_stack
 
 @task(help={
     'config_env': 'Environment to generate token for (required: dev, prod, staging, local-server, etc.)',
     'quiet': 'Suppress metadata output to stderr (token always goes to stdout)',
     'debug': 'Enable debug logging (sets LOG_LEVEL=DEBUG)'
 })
-@requires_config_env
+@requires_env_stack
 def token(ctx, config_env=None, quiet=False, debug=False):
     """
     Generate a static test user token for the specified environment.

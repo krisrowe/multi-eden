@@ -95,7 +95,6 @@ def _get_test_paths(suite: str) -> list:
 
 @task(help={
     'suite': 'Test suite to run (unit, ai, firestore, api)',
-    'config_env': 'Configuration environment to use (overrides suite default)',
     'verbose': 'Enable verbose output',
     'test_name': 'Filter to specific test method(s) (e.g., "test_long_name_product" or "test_*")',
     'show_config': 'Show detailed configuration including partial secret values',
@@ -133,7 +132,6 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     
     Args:
         suite: Test suite name
-        config_env: Configuration environment (optional)
         verbose: Whether to enable verbose output
         test_name: Optional test name filter (e.g., "test_long_name_product")
         show_config: Whether to show detailed configuration including secrets
@@ -309,7 +307,6 @@ def _show_secrets_configuration(config_env):
     Display secrets configuration with partial values for debugging.
     
     Args:
-        config_env: Configuration environment name
     """
     print("\n" + "=" * 74)
     print("🔐 SECRETS CONFIGURATION")
