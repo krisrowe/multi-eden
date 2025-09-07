@@ -72,7 +72,7 @@ class NoKeyCachedForLocalSecretsException(ConfigException):
         return f"""
 ❌ Secret '{self.secret_name}' unavailable because local secrets require a cached decryption key but none is available
 💡 You're configured for local secrets manager in app.yaml, therefore, you must do the following:
-   1. Set the cached key: invoke secrets.set-cached-key
+   1. Set the cached key: invoke secrets.set-cached-key --passphrase="your-passphrase"
    2. Validate the secret is accessible: invoke secrets.get {self.secret_name}
 """
 
