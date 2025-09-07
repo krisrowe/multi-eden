@@ -1,31 +1,29 @@
-# This file defines test suites and their execution configuration.
-# Test suites are selected via test suite selection (unit, ai, integration, api).
+# tests.yaml - Complete SDK Test Configuration
+# Path-based environment mapping for pytest (automatic environment loading)
+paths:
+  "tests/unit/": "unit"
+  "tests/ai/": "ai"
+  "tests/api/": "api-test"
+  "tests/providers/": "unit"
 
+# Suite-based configuration for invoke test [suite] commands
 suites:
   unit:
-    description: "Unit tests with mocked dependencies"
-    env: "unit"  # References environment layer from environments.yaml
+    description: "Unit tests with mocked dependencies - no external services required"
+    env: "unit"
     tests:
       - "tests/unit"
-      - "tests/providers" 
-      - "tests/api"
+      - "tests/providers"
     
   ai:
-    description: "Integration tests with real AI API calls"
-    env: "ai"  # References environment layer from environments.yaml
+    description: "AI integration tests with real API calls - requires GEMINI_API_KEY"
+    env: "ai"
     tests:
       - "tests/ai"
     
-  integration:
-    description: "Integration tests that require external dependencies"
-    env: "api-test"  # References environment layer from environments.yaml
-    tests:
-      - "tests/integration"
-      - "tests/providers"
-    
   api:
-    description: "API tests via HTTP (focus on network interface)"
-    env: "api-test"  # References environment layer from environments.yaml
+    description: "API tests via HTTP - requires PROJECT_ID and secrets"
+    env: "api-test"
     tests:
       - "tests/api"
       - "tests/providers"

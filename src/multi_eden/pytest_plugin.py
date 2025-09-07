@@ -119,23 +119,50 @@ def _get_environment_for_test_path(test_path: str) -> Optional[str]:
     """
     Determine which environment layer to load based on the test file path.
     
-    Uses tests.yaml to find which suite the test belongs to and loads its environment.
+    Uses tests.yaml paths section for direct path-to-environment mapping.
     """
-    # Load test suite configuration
+    # Load test configuration
     test_config = _load_test_config()
     
-    # Get suites from config
-    suites = test_config.get('suites', {})
+    # Get paths from config (for pytest path-based mapping)
+    paths = test_config.get('paths', {})
     
-    # Find the first suite whose test paths match this test file
-    for suite_name, suite_config in suites.items():
-        test_paths = suite_config.get('tests', [])
-        for test_path_pattern in test_paths:
-            if test_path_pattern in test_path:
-                return suite_config.get('env')
+    # Find the first path pattern that matches this test file
+    for path_pattern, env_layer in paths.items():
+        if path_pattern in test_path:
+            return env_layer
     
     # No pattern matched
     return None
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Add skip summary with guidance to the terminal output."""
+    if not terminalreporter.stats.get('skipped'):
+        return
+    
+    terminalreporter.write_sep("=", "SKIP SUMMARY")
+    terminalreporter.write_line("")
+    
+    # Group skipped tests by reason
+    skip_reasons = {}
+    for report in terminalreporter.stats['skipped']:
+        reason = getattr(report, 'longrepr', 'No reason provided')
+        if reason not in skip_reasons:
+            skip_reasons[reason] = []
+        skip_reasons[reason].append(report.nodeid)
+    
+    # Display each skip reason with guidance
+    for reason, test_ids in skip_reasons.items():
+        terminalreporter.write_line(f"❌ {len(test_ids)} tests skipped:")
+        # Split the reason by newlines and write each line separately
+        reason_lines = str(reason).split('\\n')
+        for line in reason_lines:
+            terminalreporter.write_line(line)
+        terminalreporter.write_line("")
+    
+    terminalreporter.write_line("💡 To enable these tests, follow the guidance above to configure your environment.")
+    terminalreporter.write_line("")
 
 
 def _load_test_config() -> Dict[str, Any]:

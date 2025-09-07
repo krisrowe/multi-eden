@@ -16,12 +16,8 @@ class TestPromptService(unittest.TestCase):
     
     @classmethod
     def setUpClass(cls):
-        """Ensure GEMINI_API_KEY is set before running any tests."""
-        if not os.getenv('GEMINI_API_KEY'):
-            raise unittest.SkipTest(
-                "GEMINI_API_KEY environment variable must be set to run AI tests. "
-                "Set it with: export GEMINI_API_KEY=your_api_key"
-            )
+        """Set up test class - environment loading handled by pytest plugin."""
+        pass
     
     def test_simple_math_prompt(self):
         """Test basic math prompt with default model."""
