@@ -72,8 +72,8 @@ class NoKeyCachedForLocalSecretsException(ConfigException):
         return f"""
 ❌ Secret '{self.secret_name}' unavailable because local secrets require a cached decryption key but none is available
 💡 You're configured for local secrets manager in app.yaml, therefore, you must do the following:
-   1. Set the cached key: invoke secrets set-cached-key
-   2. Validate the secret is accessible: invoke secrets get {self.secret_name}
+   1. Set the cached key: invoke secrets.set-cached-key
+   2. Validate the secret is accessible: invoke secrets.get {self.secret_name}
 """
 
 
@@ -102,8 +102,8 @@ class GoogleSecretNotFoundException(ConfigException):
         return f"""
 ❌ Secret '{self.secret_name}' not found in Google Secret Manager
 💡 You're configured for Google secrets manager in app.yaml, therefore, you must do one of the following:
-   1. Set the secret: invoke secrets set {self.secret_name} --env-name={env_name}
-   2. Or check if secret exists: invoke secrets list --env-name={env_name}
+   1. Set the secret: invoke secrets.set {self.secret_name} --env-name={env_name}
+   2. Or check if secret exists: invoke secrets.list --env-name={env_name}
       (Note: --env-name must be a name found in .projects file that is mapped to a Google Cloud project id
        where {self.secret_name} is registered as the name of a secret in Secrets Manager)
 """

@@ -37,8 +37,8 @@ secrets:
    ```
    ❌ Secret 'gemini-api-key' not found in local secrets file
    💡 You're configured for local secrets manager in app.yaml, therefore, you must do the following:
-      1. Set the secret: invoke secrets set gemini-api-key
-      2. Or check if secret exists: invoke secrets list
+      1. Set the secret: invoke secrets.set gemini-api-key
+      2. Or check if secret exists: invoke secrets.list
    ```
 5. **Run integration tests**: `pytest tests/integration` → **works if PROJECT_ID configured**
 6. **Task execution**: `invoke prompt "hello" --config-env=ai` → **works with AI environment loaded**
@@ -462,7 +462,7 @@ def analyze(ctx, food_description, config_env=None, ...):
 @requires_env_stack()
 def list(ctx, config_env=None, ...):
     """List all secrets in the configured store."""
-    # User specifies: invoke secrets list --config-env=dev
+    # User specifies: invoke secrets.list --config-env=dev
 
 # docker.py tasks - Safe to use dynamic
 @requires_env_stack()
@@ -755,8 +755,8 @@ class NoKeyCachedForLocalSecretsException(ConfigException):
         return f"""
 ❌ Secret '{self.secret_name}' unavailable because local secrets require a cached decryption key but none is available
 💡 You're configured for local secrets manager in app.yaml, therefore, you must do the following:
-   1. Set the cached key: invoke secrets set-cached-key
-   2. Validate the secret is accessible: invoke secrets get {self.secret_name}
+   1. Set the cached key: invoke secrets.set-cached-key
+   2. Validate the secret is accessible: invoke secrets.get {self.secret_name}
 """
 
 class LocalSecretNotFoundException(ConfigException):
@@ -768,8 +768,8 @@ class LocalSecretNotFoundException(ConfigException):
         return f"""
 ❌ Secret '{self.secret_name}' not found in local secrets file
 💡 You're configured for local secrets manager in app.yaml, therefore, you must do one of the following:
-   1. Set the secret: invoke secrets set {self.secret_name}
-   2. Or check if secret exists: invoke secrets list
+   1. Set the secret: invoke secrets.set {self.secret_name}
+   2. Or check if secret exists: invoke secrets.list
 """
 
 class GoogleSecretNotFoundException(ConfigException):
@@ -783,8 +783,8 @@ class GoogleSecretNotFoundException(ConfigException):
         return f"""
 ❌ Secret '{self.secret_name}' not found in Google Secret Manager
 💡 You're configured for Google secrets manager in app.yaml, therefore, you must do one of the following:
-   1. Set the secret: invoke secrets set {self.secret_name} --env-name={env_name}
-   2. Or check if secret exists: invoke secrets list --env-name={env_name}
+   1. Set the secret: invoke secrets.set {self.secret_name} --env-name={env_name}
+   2. Or check if secret exists: invoke secrets.list --env-name={env_name}
       (Note: --env-name must be a name found in .projects file that is mapped to a Google Cloud project id
        where {self.secret_name} is registered as the name of a secret in Secrets Manager)
 """
@@ -819,14 +819,14 @@ except ConfigException as e:
 # Missing cached key for local secrets
 ❌ Secret 'gemini-api-key' unavailable because local secrets require a cached decryption key but none is available
 💡 You're configured for local secrets manager in app.yaml, therefore, you must do the following:
-   1. Set the cached key: invoke secrets set-cached-key
-   2. Validate the secret is accessible: invoke secrets get gemini-api-key
+   1. Set the cached key: invoke secrets.set-cached-key
+   2. Validate the secret is accessible: invoke secrets.get gemini-api-key
 
 # Missing secret in local file
 ❌ Secret 'gemini-api-key' not found in local secrets file
 💡 You're configured for local secrets manager in app.yaml, therefore, you must do one of the following:
-   1. Set the secret: invoke secrets set gemini-api-key
-   2. Or check if secret exists: invoke secrets list
+   1. Set the secret: invoke secrets.set gemini-api-key
+   2. Or check if secret exists: invoke secrets.list
 ```
 
 #### **Google Secrets Manager (App Development)**
@@ -842,8 +842,8 @@ except ConfigException as e:
 # Missing secret in Google Secret Manager
 ❌ Secret 'gemini-api-key' not found in Google Secret Manager
 💡 You're configured for Google secrets manager in app.yaml, therefore, you must do one of the following:
-   1. Set the secret: invoke secrets set gemini-api-key --env-name=dev
-   2. Or check if secret exists: invoke secrets list --env-name=dev
+   1. Set the secret: invoke secrets.set gemini-api-key --env-name=dev
+   2. Or check if secret exists: invoke secrets.list --env-name=dev
       (Note: --env-name must be a name found in .projects file that is mapped to a Google Cloud project id
        where gemini-api-key is registered as the name of a secret in Secrets Manager)
 ```

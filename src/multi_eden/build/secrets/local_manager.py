@@ -50,8 +50,8 @@ def loads_secrets(response_class, requires_file=True, requires_key=True, allow_e
                     if requires_file:
                         # Operation requires file to exist
                         if throw_not_found:
-                            # Extract secret_name from args (it's the second argument, first is secrets_manifest)
-                            secret_name = args[1] if len(args) > 1 else 'unknown'
+                            # Extract secret_name from args (it's the first argument after secrets_manifest)
+                            secret_name = args[0] if len(args) > 0 else 'unknown'
                             raise LocalSecretNotFoundException("No local secrets file found. Use 'invoke secrets.set' to create secrets.", secret_name=secret_name)
                         from .models import SecretsManagerMetaResponse, ErrorInfo
                         error_meta = SecretsManagerMetaResponse(
