@@ -192,3 +192,43 @@ def _load_test_config() -> Dict[str, Any]:
     
     # No configuration found
     return {}
+
+
+@pytest.fixture(scope="function")
+def api_client():
+    """
+    Optional API client that chooses type based on TEST_API_IN_MEMORY environment variable.
+    
+    Only provided if TEST_API_IN_MEMORY is explicitly set:
+    - TEST_API_IN_MEMORY=true: Returns InMemoryAPITestClient
+    - TEST_API_IN_MEMORY=false: Returns RemoteAPITestClient  
+    - TEST_API_IN_MEMORY not set: Returns None (fixture not provided)
+    """
+    import os
+    
+    test_api_in_memory = os.environ.get('TEST_API_IN_MEMORY')
+    if not test_api_in_memory:
+        # Don't provide fixture if TEST_API_IN_MEMORY is not set
+        pytest.skip("TEST_API_IN_MEMORY not set - api_client fixture not available")
+    
+    from multi_eden.build.api_client.in_memory_client import InMemoryAPITestClient
+    from multi_eden.build.api_client.remote_client import RemoteAPITestClient
+    
+    if test_api_in_memory.lower() == 'true':
+        # In-memory API client
+        try:
+            from fastapi.testclient import TestClient
+            # Try to import the app module - this will be configured per app
+            from core.api import app
+            fastapi_client = TestClient(app)
+            return InMemoryAPITestClient(fastapi_client, auth_required=True)
+        except ImportError as e:
+            pytest.skip(f"InMemoryAPITestClient not available: {e}")
+    
+    elif test_api_in_memory.lower() == 'false':
+        # Remote API client
+        api_url = os.environ.get('TEST_API_URL', 'http://localhost:8000')
+        return RemoteAPITestClient(api_url, auth_required=True)
+    
+    else:
+        pytest.skip(f"Invalid TEST_API_IN_MEMORY value: {test_api_in_memory}")
