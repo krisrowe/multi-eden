@@ -86,8 +86,8 @@ class LocalSecretNotFoundException(ConfigException):
         return f"""
 ❌ Secret '{self.secret_name}' not found in local secrets file
 💡 You're configured for local secrets manager in app.yaml, therefore, you must do one of the following:
-   1. Set the secret: invoke secrets set {self.secret_name}
-   2. Or check if secret exists: invoke secrets list
+   1. Set the secret: invoke secrets.set {self.secret_name} "your-value"
+   2. Or check if secret exists: invoke secrets.list
 """
 
 
@@ -144,3 +144,4 @@ class EnvironmentLoadError(ConfigException):
 class EnvironmentNotFoundError(ConfigException):
     """Legacy: Use specific config exceptions instead."""
     pass
+

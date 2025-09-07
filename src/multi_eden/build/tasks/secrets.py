@@ -112,8 +112,8 @@ def set(ctx, secret_name, secret_value=None, passphrase=None, quiet=False, debug
     Set a secret value.
     
     Examples:
-        invoke secrets set my-secret "my-value" --config-env=dev
-        invoke secrets set my-secret --config-env=prod  # Will prompt for value
+        invoke secrets.set my-secret "my-value"
+        invoke secrets.set my-secret  # Will prompt for value
     """
     import getpass
     from multi_eden.build.secrets.factory import get_secrets_manager

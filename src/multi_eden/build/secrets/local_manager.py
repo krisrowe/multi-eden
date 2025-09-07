@@ -19,7 +19,7 @@ from .models import SecretsManifest, SecretDefinition, GetSecretResponse, SetSec
 
 logger = logging.getLogger(__name__)
 
-def loads_secrets(response_class):
+def loads_secrets(response_class, requires_file=True, requires_key=True, allow_empty_list=False):
     """Decorator that handles secrets loading and all exception cases.
     
     Calls self._load_secrets(passphrase) and passes the manifest as first arg to decorated method.
@@ -27,6 +27,9 @@ def loads_secrets(response_class):
     
     Args:
         response_class: The Pydantic response class to return on error
+        requires_file: If True, throw exception when no secrets file exists
+        requires_key: If True, throw exception when no cached key available
+        allow_empty_list: If True, return empty list when no file exists (for list operations)
     """
     def decorator(func):
         @wraps(func)
@@ -38,14 +41,44 @@ def loads_secrets(response_class):
             throw_not_found = kwargs.get('throw_not_found', False)
             
             try:
-                # Validate cached key exists (handles KEY_NOT_SET)
-                self._validate_cached_key_exists(passphrase)
+                # Check if secrets file exists
+                secrets_file_path = self.get_secrets_file_path()
+                if not secrets_file_path.exists():
+                    if requires_file:
+                        # Operation requires file to exist
+                        if throw_not_found:
+                            from multi_eden.build.config.exceptions import LocalSecretNotFoundException
+                            # Extract secret_name from args (it's the second argument, first is secrets_manifest)
+                            secret_name = args[1] if len(args) > 1 else 'unknown'
+                            raise LocalSecretNotFoundException("No local secrets file found. Use 'invoke secrets.set' to create secrets.", secret_name=secret_name)
+                        from .models import SecretsManagerMetaResponse, ErrorInfo
+                        error_meta = SecretsManagerMetaResponse(
+                            success=False,
+                            provider="local",
+                            error=ErrorInfo(code="SECRET_NOT_FOUND", message="No local secrets file found. Use 'invoke secrets.set' to create secrets.")
+                        )
+                        return _create_error_response(response_class, error_meta)
+                    elif allow_empty_list:
+                        # For list operations, return empty list when no file exists
+                        secrets_manifest = SecretsManifest()
+                        return func(self, secrets_manifest, *args, **kwargs)
+                    else:
+                        # For set operations, no file means we need a cached key to create new encrypted file
+                        self._validate_cached_key_exists(passphrase)
+                        secrets_manifest = SecretsManifest()
+                        return func(self, secrets_manifest, *args, **kwargs)
                 
-                # Load secrets manifest
-                secrets_manifest = self._load_secrets(passphrase)
-                
-                # Call the original method with manifest as first argument
-                return func(self, secrets_manifest, *args, **kwargs)
+                # File exists, so we need cached key to decrypt it
+                if requires_key:
+                    self._validate_cached_key_exists(passphrase)
+                    # Load secrets manifest
+                    secrets_manifest = self._load_secrets(passphrase)
+                    # Call the original method with manifest as first argument
+                    return func(self, secrets_manifest, *args, **kwargs)
+                else:
+                    # For operations that don't require key (shouldn't happen with current design)
+                    secrets_manifest = SecretsManifest()
+                    return func(self, secrets_manifest, *args, **kwargs)
                 
             except PassphraseRequiredException as e:
                 if throw_not_found:
@@ -59,6 +92,18 @@ def loads_secrets(response_class):
                     success=False,
                     provider="local",
                     error=ErrorInfo(code="KEY_NOT_SET", message=str(e))
+                )
+                return _create_error_response(response_class, error_meta)
+                
+            except LocalSecretNotFoundException as e:
+                if throw_not_found:
+                    raise e  # Re-raise the LocalSecretNotFoundException
+                
+                from .models import SecretsManagerMetaResponse, ErrorInfo
+                error_meta = SecretsManagerMetaResponse(
+                    success=False,
+                    provider="local",
+                    error=ErrorInfo(code="SECRET_NOT_FOUND", message=str(e))
                 )
                 return _create_error_response(response_class, error_meta)
                 
@@ -471,7 +516,7 @@ class LocalSecretsManager(SecretsManager):
             logger.error(f"Failed to save secrets to {self.get_secrets_file_path()}: {e}")
             raise
     
-    @loads_secrets(GetSecretResponse)
+    @loads_secrets(GetSecretResponse, requires_file=True, requires_key=True, allow_empty_list=False)
     def get_secret(self, secrets_manifest: SecretsManifest, secret_name: str, passphrase: Optional[str] = None, show: bool = False, throw_not_found: bool = False) -> GetSecretResponse:
         """Get a secret value from local storage.
         
@@ -518,7 +563,7 @@ class LocalSecretsManager(SecretsManager):
             )
         )
     
-    @loads_secrets(SetSecretResponse)
+    @loads_secrets(SetSecretResponse, requires_file=False, requires_key=True, allow_empty_list=False)
     def set_secret(self, secrets_manifest: SecretsManifest, secret_name: str, secret_value: str, passphrase: Optional[str] = None) -> SetSecretResponse:
         """Set a secret value in local storage.
         
@@ -561,7 +606,7 @@ class LocalSecretsManager(SecretsManager):
                 secret=SecretInfo(name=secret_name, value=None)
             )
     
-    @loads_secrets(ListSecretsResponse)
+    @loads_secrets(ListSecretsResponse, requires_file=False, requires_key=True, allow_empty_list=True)
     def list_secrets(self, secrets_manifest: SecretsManifest, passphrase: Optional[str] = None) -> ListSecretsResponse:
         """List all secret names in local storage.
         
@@ -584,7 +629,7 @@ class LocalSecretsManager(SecretsManager):
             manifest=names_only_manifest
         )
     
-    @loads_secrets(DeleteSecretResponse)
+    @loads_secrets(DeleteSecretResponse, requires_file=True, requires_key=True, allow_empty_list=False)
     def delete_secret(self, secrets_manifest: SecretsManifest, secret_name: str, passphrase: Optional[str] = None) -> 'DeleteSecretResponse':
         """Delete a secret from local storage.
         
