@@ -27,23 +27,9 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     """Configure pytest with environment-specific settings."""
-    env_name = config.getoption("--env-name")
-    
-    if env_name:
-        # If --env-name is provided, try to resolve PROJECT_ID from .projects file
-        try:
-            project_id = _resolve_project_id_from_projects_file(env_name)
-            if project_id:
-                os.environ['PROJECT_ID'] = project_id
-            else:
-                # Fail fast if PROJECT_ID cannot be resolved
-                print(f"❌ Environment '{env_name}' not found in .projects file", file=sys.stderr)
-                print("💡 Available environments:", file=sys.stderr)
-                _list_available_environments()
-                sys.exit(1)
-        except Exception as e:
-            print(f"❌ Failed to resolve PROJECT_ID for environment '{env_name}': {e}", file=sys.stderr)
-            sys.exit(1)
+    # The pytest plugin doesn't handle --env-name parameter
+    # That should be handled by the app's own configuration system
+    pass
 
 
 def pytest_runtest_setup(item):
@@ -59,6 +45,19 @@ def pytest_runtest_setup(item):
     env_layer = _get_environment_for_test_path(test_file_path)
     
     if env_layer:
+        # Handle --env-name parameter by setting PROJECT_ID before load_env
+        env_name = None
+        if hasattr(item, 'config') and hasattr(item.config, 'getoption'):
+            try:
+                env_name = item.config.getoption("--env-name")
+                if env_name:
+                    # Set PROJECT_ID from .projects file
+                    from multi_eden.build.config.loading import get_project_id_from_projects_file
+                    project_id = get_project_id_from_projects_file(env_name)
+                    os.environ['PROJECT_ID'] = project_id
+
+            except:
+                pass
         try:
             load_env(top_layer=env_layer, fail_on_secret_error=True)
         except ConfigException as e:
@@ -69,50 +68,6 @@ def pytest_runtest_setup(item):
             print(f"Warning: Failed to load environment '{env_layer}' for {test_file_path}: {e}")
 
 
-def _resolve_project_id_from_projects_file(env_name: str) -> Optional[str]:
-    """Resolve PROJECT_ID from .projects file for given environment name."""
-    projects_file = Path.cwd() / '.projects'
-    
-    if not projects_file.exists():
-        return None
-    
-    try:
-        with open(projects_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                
-                if '=' in line:
-                    key, value = line.split('=', 1)
-                    if key.strip() == env_name:
-                        return value.strip()
-    except Exception:
-        pass
-    
-    return None
-
-
-def _list_available_environments():
-    """List available environments from .projects file."""
-    projects_file = Path.cwd() / '.projects'
-    
-    if not projects_file.exists():
-        print("   No .projects file found", file=sys.stderr)
-        return
-    
-    try:
-        with open(projects_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                
-                if '=' in line:
-                    key, value = line.split('=', 1)
-                    print(f"   {key.strip()}={value.strip()}", file=sys.stderr)
-    except Exception:
-        print("   Error reading .projects file", file=sys.stderr)
 
 
 def _get_environment_for_test_path(test_path: str) -> Optional[str]:

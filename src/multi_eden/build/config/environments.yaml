@@ -12,6 +12,7 @@ environments:
     inherits: "app"
     env:
       JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"  # Mock value
+      ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"  # Mock value
       STUB_AI: true
       STUB_DB: true
       TEST_API_IN_MEMORY: true

@@ -28,6 +28,7 @@ class InitPlan:
     repo_root: Path
     actions_needed: List[str]
     actions_completed: List[str]
+    existing_secrets: dict
 
 
 @dataclass
@@ -89,7 +90,7 @@ def _load_api_config(repo_root: Path) -> Dict[str, Any]:
 def _check_existing_config(config_dir: Path) -> Optional[Dict[str, Any]]:
     """Check for existing configuration and return project info."""
     app_yaml = config_dir / "app.yaml"
-    env_yaml = config_dir / "environments.yaml"
+    projects_file = config_dir.parent / ".projects"
     
     existing_config = {}
     
@@ -100,12 +101,13 @@ def _check_existing_config(config_dir: Path) -> Optional[Dict[str, Any]]:
             existing_config['app_id'] = app_config.get('id')
             existing_config['registry'] = app_config.get('registry')
     
-    if env_yaml.exists():
-        import yaml
-        with open(env_yaml) as f:
-            env_config = yaml.safe_load(f)
-            dev_env = env_config.get('environments', {}).get('dev', {})
-            existing_config['dev_project_id'] = dev_env.get('project_id')
+    if projects_file.exists():
+        with open(projects_file) as f:
+            content = f.read()
+            for line in content.split('\n'):
+                if line.startswith('dev='):
+                    existing_config['dev_project_id'] = line.split('=', 1)[1].strip()
+                    break
     
     return existing_config if existing_config else None
 
@@ -147,39 +149,6 @@ api:
         f.write(app_yaml_content)
 
 
-def _create_environments_yaml(config_dir: Path, app_id: str) -> None:
-    """Create config/environments.yaml with app-specific configuration."""
-    env_yaml_content = f"""# Multi-Eden Environment Configuration
-# Inherits from SDK defaults and overrides project-specific settings
-
-environments:
-  app:
-    env:
-      APP_ID: "{app_id}"  # App-specific settings, no project ID
-  # dev and prod inherit from SDK defaults
-  # Only override specific values if needed:
-  # dev:
-  #   env:
-  #     PROJECT_ID: "my-hardcoded-project-id"  # Overrides $.projects.dev from SDK
-  #     LOG_LEVEL: "DEBUG"  # Example: more verbose logging for dev
-  #     API_TIMEOUT: "30"  # Example: longer timeout for debugging
-  # prod:
-  #   env:
-  #     PROJECT_ID: "$.projects.prod-2"  # overrides $.projects.prod from SDK 
-  #     LOG_LEVEL: "WARNING"  # Example: less verbose logging for prod
-  #     API_TIMEOUT: "10"  # Example: shorter timeout for prod
-  # staging:  # Example: add new environment
-  #   inherits: "app"
-  #   env:
-  #     PROJECT_ID: "$.projects.staging"
-  #     LOG_LEVEL: "INFO"
-  #     STUB_AI: false  # Example: use real AI in staging
-"""
-    
-    with open(config_dir / "environments.yaml", "w") as f:
-        f.write(env_yaml_content)
-
-
 def _create_pytest_ini(repo_root: Path) -> None:
     """Create pytest.ini with plugin registration."""
     pytest_content = '''[pytest]
@@ -208,13 +177,13 @@ prod={dev_project_id}  # TODO: Update with production project ID
 
 
 
-def _handle_gitignore_environments(repo_root: Path) -> ActionResult:
-    """Handle .gitignore entry for config/environments.yaml."""
+def _handle_gitignore_projects(repo_root: Path) -> ActionResult:
+    """Handle .gitignore entry for .projects file."""
     gitignore_path = repo_root / ".gitignore"
     
     if not gitignore_path.exists():
         return ActionResult(
-            name=".gitignore: config/environments.yaml",
+            name=".gitignore: .projects",
             status="FAILED",
             details="No .gitignore file found"
         )
@@ -223,27 +192,27 @@ def _handle_gitignore_environments(repo_root: Path) -> ActionResult:
         content = f.read()
     
     # Check if it's already ignored (not commented)
-    if "config/environments.yaml" in content and not content.count("#config/environments.yaml"):
+    if ".projects" in content and not content.count("#.projects"):
         return ActionResult(
-            name=".gitignore: config/environments.yaml",
+            name=".gitignore: .projects",
             status="SKIPPED",
             details="Already in .gitignore"
         )
     
     # Check if it's commented out (developer wants it tracked)
-    if "#config/environments.yaml" in content or "# config/environments.yaml" in content:
+    if "#.projects" in content or "# .projects" in content:
         return ActionResult(
-            name=".gitignore: config/environments.yaml",
+            name=".gitignore: .projects",
             status="SKIPPED",
             details="Explicitly commented out (will be tracked)"
         )
     
     # Add it to .gitignore
     with open(gitignore_path, "a") as f:
-        f.write("\n# Multi-Eden environment configuration (contains project IDs)\nconfig/environments.yaml\n")
+        f.write("\n# Multi-Eden project IDs (contains sensitive project information)\n.projects\n")
     
     return ActionResult(
-        name=".gitignore: config/environments.yaml",
+        name=".gitignore: .projects",
         status="DONE",
         details="Added to .gitignore"
     )
@@ -318,18 +287,78 @@ class TestSystemEndpoints:
     
     def test_system_info_endpoint(self):
         """Test system info endpoint."""
-        response = self.client.get("/system/info")
+        response = self.client.get("/api/system")
         assert response.status_code == 200
         data = response.json()
-        assert "app_id" in data
-        assert "version" in data
+        assert "SYS_AP" in data
+        assert "SYS_DP" in data
 '''
     
     with open(tests_dir / "test_api.py", "w") as f:
         f.write(test_content)
 
 
-def _setup_secrets_in_manager(project_id: str, app_id: str, jwt_secret: str, gemini_api_key: str) -> ActionResult:
+def _check_existing_secrets(project_id: str) -> dict:
+    """Check if secrets already exist in Google Secret Manager and retrieve their values."""
+    try:
+        from google.cloud import secretmanager
+        
+        client = secretmanager.SecretManagerServiceClient()
+        parent = f"projects/{project_id}"
+        
+        existing_secrets = {}
+        secret_names = ["jwt-secret-key", "gemini-api-key"]
+        
+        for secret_name in secret_names:
+            try:
+                secret_path = f"projects/{project_id}/secrets/{secret_name}"
+                secret = client.get_secret(request={"name": secret_path})
+                
+                # Check if secret has versions
+                versions = client.list_secret_versions(request={"parent": secret_path})
+                version_list = list(versions)
+                
+                if version_list:
+                    # Get the latest version
+                    latest_version = max(version_list, key=lambda v: v.create_time)
+                    
+                    # Try to get the actual secret value
+                    try:
+                        secret_value_response = client.access_secret_version(request={"name": latest_version.name})
+                        secret_value = secret_value_response.payload.data.decode("UTF-8")
+                    except Exception:
+                        secret_value = None
+                    
+                    existing_secrets[secret_name] = {
+                        "exists": True,
+                        "has_versions": True,
+                        "latest_version": latest_version.name,
+                        "created": latest_version.create_time,
+                        "value": secret_value
+                    }
+                else:
+                    existing_secrets[secret_name] = {
+                        "exists": True,
+                        "has_versions": False,
+                        "value": None
+                    }
+                    
+            except Exception:
+                # Secret doesn't exist or we can't access it
+                existing_secrets[secret_name] = {
+                    "exists": False,
+                    "value": None
+                }
+        
+        return existing_secrets
+        
+    except ImportError:
+        return {name: {"exists": False, "error": "Secret Manager library not available", "value": None} for name in secret_names}
+    except Exception as e:
+        return {name: {"exists": False, "error": str(e), "value": None} for name in secret_names}
+
+
+def _setup_secrets_in_manager(project_id: str, app_id: str, jwt_secret: str, gemini_api_key: str, existing_secrets: dict = None) -> ActionResult:
     """Set up secrets in Google Secret Manager."""
     try:
         from google.cloud import secretmanager
@@ -339,6 +368,7 @@ def _setup_secrets_in_manager(project_id: str, app_id: str, jwt_secret: str, gem
         
         secrets_created = []
         secrets_updated = []
+        secrets_skipped = []
         
         # Define secrets to create
         secrets_to_setup = [
@@ -347,6 +377,10 @@ def _setup_secrets_in_manager(project_id: str, app_id: str, jwt_secret: str, gem
         ]
         
         for secret_name, secret_value in secrets_to_setup:
+            # Skip if secret already exists and has versions
+            if existing_secrets and existing_secrets.get(secret_name, {}).get('exists', False) and existing_secrets.get(secret_name, {}).get('has_versions', False):
+                secrets_skipped.append(secret_name)
+                continue
             try:
                 # Try to create the secret
                 secret = {
@@ -394,6 +428,8 @@ def _setup_secrets_in_manager(project_id: str, app_id: str, jwt_secret: str, gem
             details_parts.append(f"Created: {', '.join(secrets_created)}")
         if secrets_updated:
             details_parts.append(f"Updated: {', '.join(secrets_updated)}")
+        if secrets_skipped:
+            details_parts.append(f"Skipped (existing): {', '.join(secrets_skipped)}")
         
         details = "; ".join(details_parts) if details_parts else "No changes needed"
         
@@ -431,12 +467,21 @@ def _create_init_plan(
     if not registry_project_id:
         registry_project_id = dev_project_id
     
-    # Generate secrets if not provided
+    # Check for existing secrets in Secret Manager
+    existing_secrets = _check_existing_secrets(dev_project_id)
+    
+    # Generate secrets if not provided, but check if they already exist
     if not jwt_secret:
-        jwt_secret = _generate_secret_value('jwt', app_id)
+        if existing_secrets.get('jwt-secret-key', {}).get('exists', False):
+            jwt_secret = "EXISTING"  # Placeholder to indicate existing secret
+        else:
+            jwt_secret = _generate_secret_value('jwt', app_id)
     
     if not gemini_api_key:
-        gemini_api_key = _generate_secret_value('gemini', app_id)
+        if existing_secrets.get('gemini-api-key', {}).get('exists', False):
+            gemini_api_key = "EXISTING"  # Placeholder to indicate existing secret
+        else:
+            gemini_api_key = _generate_secret_value('gemini', app_id)
     
     # Load API configuration to determine structure
     api_config = _load_api_config(repo_root)
@@ -455,25 +500,20 @@ def _create_init_plan(
     else:
         planned_actions.append(ActionResult("config/app.yaml", "EXISTS", "Already exists"))
     
-    if not (config_dir / "environments.yaml").exists():
-        planned_actions.append(ActionResult("config/environments.yaml", "PLANNED", "Will create environment configuration"))
-    else:
-        planned_actions.append(ActionResult("config/environments.yaml", "EXISTS", "Already exists"))
-    
     # Plan .gitignore handling
     gitignore_path = repo_root / ".gitignore"
     if gitignore_path.exists():
         with open(gitignore_path, "r") as f:
             content = f.read()
         
-        if "config/environments.yaml" in content and not content.count("#config/environments.yaml"):
-            planned_actions.append(ActionResult(".gitignore: config/environments.yaml", "EXISTS", "Already in .gitignore"))
-        elif "#config/environments.yaml" in content or "# config/environments.yaml" in content:
-            planned_actions.append(ActionResult(".gitignore: config/environments.yaml", "SKIP", "Explicitly commented out (will be tracked)"))
+        if ".projects" in content and not content.count("#.projects"):
+            planned_actions.append(ActionResult(".gitignore: .projects", "EXISTS", "Already in .gitignore"))
+        elif "#.projects" in content or "# .projects" in content:
+            planned_actions.append(ActionResult(".gitignore: .projects", "SKIP", "Explicitly commented out (will be tracked)"))
         else:
-            planned_actions.append(ActionResult(".gitignore: config/environments.yaml", "PLANNED", "Will add to .gitignore"))
+            planned_actions.append(ActionResult(".gitignore: .projects", "PLANNED", "Will add to .gitignore"))
     else:
-        planned_actions.append(ActionResult(".gitignore: config/environments.yaml", "ERROR", "No .gitignore file found"))
+        planned_actions.append(ActionResult(".gitignore: .projects", "ERROR", "No .gitignore file found"))
     
     # Plan test structure
     if not (tests_dir / "providers").exists():
@@ -504,7 +544,8 @@ def _create_init_plan(
         gemini_api_key=gemini_api_key,
         repo_root=repo_root,
         actions_needed=[],  # Legacy field, not used
-        actions_completed=[]  # Legacy field, not used
+        actions_completed=[],  # Legacy field, not used
+        existing_secrets=existing_secrets
     )
     
     return plan, planned_actions
@@ -521,8 +562,36 @@ def _show_plan_and_confirm(plan: InitPlan) -> bool:
     print(f"📂 Repository: {plan.repo_root}")
     
     print(f"\n🔐 Secrets Configuration:")
-    print(f"   JWT Secret: {plan.jwt_secret[:8]}... (generated)")
-    print(f"   Gemini API Key: {plan.gemini_api_key[:12]}... (generated)")
+    
+    # JWT Secret status
+    jwt_status = plan.existing_secrets.get('jwt-secret-key', {})
+    if jwt_status.get('exists', False):
+        if jwt_status.get('has_versions', False):
+            # Show actual secret value if available
+            if jwt_status.get('value'):
+                secret_preview = jwt_status['value'][:8] + "..."
+            else:
+                secret_preview = plan.jwt_secret[:8] + "..."
+            print(f"   JWT Secret: {secret_preview} (existing in Secret Manager)")
+        else:
+            print(f"   JWT Secret: {plan.jwt_secret[:8]}... (existing but no versions)")
+    else:
+        print(f"   JWT Secret: {plan.jwt_secret[:8]}... (will be generated)")
+    
+    # Gemini API Key status
+    gemini_status = plan.existing_secrets.get('gemini-api-key', {})
+    if gemini_status.get('exists', False):
+        if gemini_status.get('has_versions', False):
+            # Show actual secret value if available
+            if gemini_status.get('value'):
+                secret_preview = gemini_status['value'][:12] + "..."
+            else:
+                secret_preview = plan.gemini_api_key[:12] + "..."
+            print(f"   Gemini API Key: {secret_preview} (existing in Secret Manager)")
+        else:
+            print(f"   Gemini API Key: {plan.gemini_api_key[:12]}... (existing but no versions)")
+    else:
+        print(f"   Gemini API Key: {plan.gemini_api_key[:12]}... (will be generated)")
     
     if plan.actions_completed:
         print(f"\n✅ Already Completed:")
@@ -567,14 +636,8 @@ def _execute_plan(plan: InitPlan) -> List[ActionResult]:
         else:
             results.append(ActionResult("config/app.yaml", "SKIPPED", "Already exists"))
         
-        if not (config_dir / "environments.yaml").exists():
-            _create_environments_yaml(config_dir, plan.app_id)
-            results.append(ActionResult("config/environments.yaml", "DONE", "Created environment configuration"))
-        else:
-            results.append(ActionResult("config/environments.yaml", "SKIPPED", "Already exists"))
-        
-        # Handle .gitignore for environments.yaml
-        gitignore_result = _handle_gitignore_environments(plan.repo_root)
+        # Handle .gitignore for .projects
+        gitignore_result = _handle_gitignore_projects(plan.repo_root)
         results.append(gitignore_result)
         
         # Create pytest.ini
@@ -621,7 +684,8 @@ def _execute_plan(plan: InitPlan) -> List[ActionResult]:
             project_id=plan.dev_project_id,
             app_id=plan.app_id,
             jwt_secret=plan.jwt_secret,
-            gemini_api_key=plan.gemini_api_key
+            gemini_api_key=plan.gemini_api_key,
+            existing_secrets=plan.existing_secrets
         )
         results.append(secret_result)
         

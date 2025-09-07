@@ -63,8 +63,21 @@ class GoogleClient(ModelClient):
             generation_config = {}
             tools = []
             
-            # Add grounding tool if enabled
-            if enable_grounding:
+            # Handle structured output vs grounding tools (mutually exclusive)
+            has_structured_output = function_declarations or self.get_schema()
+            
+            if has_structured_output:
+                # Use structured output (no grounding tools)
+                if function_declarations:
+                    generation_config["response_mime_type"] = "application/json"
+                    generation_config["response_schema"] = function_declarations
+                    logger.debug(f"Using function declarations for structured output: {len(function_declarations)} functions")
+                elif self.get_schema():
+                    generation_config["response_mime_type"] = "application/json"
+                    generation_config["response_schema"] = self.get_schema()
+                    logger.debug(f"Using stored schema for structured output: {type(self.get_schema())}")
+            elif enable_grounding:
+                # Use grounding tools (no structured output)
                 try:
                     from google.genai import types
                     grounding_tool = types.Tool(
@@ -76,18 +89,6 @@ class GoogleClient(ModelClient):
                     logger.warning("Google GenAI types not available for grounding, proceeding without grounding")
                 except Exception as e:
                     logger.warning(f"Failed to set up grounding tool: {e}, proceeding without grounding")
-            
-            # Handle structured output
-            if function_declarations:
-                # Use function declarations for structured output
-                generation_config["response_mime_type"] = "application/json"
-                generation_config["response_schema"] = function_declarations
-                logger.debug(f"Using function declarations for structured output: {len(function_declarations)} functions")
-            elif self.get_schema():
-                # Use stored schema for structured output
-                generation_config["response_mime_type"] = "application/json"
-                generation_config["response_schema"] = self.get_schema()
-                logger.debug(f"Using stored schema for structured output: {type(self.get_schema())}")
             
             # Prepare the config object
             config_kwargs = {}

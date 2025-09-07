@@ -214,7 +214,7 @@ from multi_eden.build.tasks.config.decorators import requires_env_stack
     'port': 'Port to run the API server on (default: 8000)',
     'background': 'Run in background (default: True)'
 })
-@requires_env_stack
+@requires_env_stack("local")
 def api_start(ctx, port=None, config_env=DEFAULT_ENV, background=True):
     """Start the API server."""
     try:

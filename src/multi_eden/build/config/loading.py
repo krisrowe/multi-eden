@@ -353,6 +353,7 @@ def load_env(top_layer: str, base_layer: Optional[str] = None, files: Optional[L
     Returns:
         Dictionary of loaded variables with source info: {var_name: (value, source)}
     """
+    
     if files is None:
         # Default file sources
         files = [
