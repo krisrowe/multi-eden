@@ -2,6 +2,7 @@
 
 import unittest
 import hashlib
+import pytest
 from multi_eden.build.secrets.factory import get_secrets_manager
 
 
@@ -16,11 +17,18 @@ SECRETS_CACHE_SUBDIR = "secrets-cache"
 class BaseSecretsTest(unittest.TestCase):
     """Base test class for secrets tests with centralized cleanup."""
     
-    def setUp(self):
-        """Set up test environment."""
+    @pytest.fixture(autouse=True)
+    def setup_test_environment(self, secrets_test_environment):
+        """Set up test environment for each test method."""
+        self.test_setup = secrets_test_environment
         self.manager = get_secrets_manager()
         
         # Clean up any existing test state
+        self._cleanup_test_files()
+    
+    def setUp(self):
+        """Set up test environment (called after fixture)."""
+        # Manager is set by fixture, just clean up
         self._cleanup_test_files()
     
     def tearDown(self):
