@@ -187,8 +187,7 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     
     cmd.extend([
         "--tb=short",
-        "--strict-markers",
-        "--suite", suite
+        "--strict-markers"
     ])
     
     # Filter out integration tests if omit-integration is true
@@ -210,11 +209,11 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     # Add test paths (filter out non-existent ones)
     valid_test_paths = []
     for path in test_paths:
-        test_path = Path.cwd() / "tests" / path
+        test_path = Path.cwd() / path
         if test_path.exists():
-            valid_test_paths.append(f"tests/{path}")
+            valid_test_paths.append(path)
         else:
-            logger.debug(f"Test path not found, skipping: tests/{path}")
+            logger.debug(f"Test path not found, skipping: {path}")
     
     if not valid_test_paths:
         print(f"❌ No valid test paths found for suite '{suite}'")
@@ -292,7 +291,7 @@ def pytest_config(ctx, suite, env=None):
         print("⚠️  No environment specified - test mode must provide complete config")
     
     # Show pytest command that would be run
-    cmd = ["python", "-m", "pytest", "--suite", suite]
+    cmd = ["python", "-m", "pytest"]
     if should_omit_integration_tests(suite):
         cmd.extend(["-m", "not integration"])
     if test_paths:

@@ -10,20 +10,17 @@ paths:
 suites:
   unit:
     description: "Unit tests with mocked dependencies - no external services required"
-    env: "unit"
     tests:
       - "tests/unit"
       - "tests/providers"
     
   ai:
     description: "AI integration tests with real API calls - requires GEMINI_API_KEY"
-    env: "ai"
     tests:
       - "tests/ai"
     
   api:
     description: "API tests via HTTP - requires PROJECT_ID and secrets"
-    env: "api-test"
     tests:
       - "tests/api"
       - "tests/providers"

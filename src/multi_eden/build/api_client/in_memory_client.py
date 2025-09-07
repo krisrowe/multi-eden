@@ -2,41 +2,37 @@
 In-memory API client using FastAPI TestClient.
 
 Used by unit and integration test suites for fast, isolated testing.
+This is a generic, reusable client that doesn't know about specific auth frameworks.
 """
 from .base_client import APITestClient
 from .response import APIResponse
-from multi_eden.run.config.providers import simple_provider_name
 
 
-@simple_provider_name("In Memory")
 class InMemoryAPITestClient(APITestClient):
     """In-memory API client using FastAPI TestClient.
     
     Used by unit and integration test suites for fast, isolated testing.
+    This is a generic, reusable client that doesn't know about specific auth frameworks.
     """
     
-    def __init__(self, fastapi_client, auth_required=True):
+    def __init__(self, fastapi_client, default_headers=None):
         """Initialize with FastAPI TestClient instance.
         
         Args:
             fastapi_client: FastAPI TestClient instance
-            auth_required: Whether to include auth headers by default
+            default_headers: Optional default headers to include in all requests
         """
         self.client = fastapi_client
-        self.auth_required = auth_required
-        
-        if auth_required:
-            # Get auth token for in-memory tests
-            from multi_eden.run.auth.testing import get_static_test_user_token
-            token_info = get_static_test_user_token()
-            self.token = token_info['token']
+        self.default_headers = default_headers or {}
     
     def get(self, path, headers=None):
         """Make GET request using FastAPI TestClient."""
-        if headers is None and self.auth_required:
-            headers = {'Authorization': f'Bearer {self.token}'}
+        # Merge default headers with request-specific headers
+        merged_headers = {**self.default_headers}
+        if headers:
+            merged_headers.update(headers)
         
-        response = self.client.get(path, headers=headers)
+        response = self.client.get(path, headers=merged_headers)
         
         try:
             data = response.json()
@@ -52,10 +48,12 @@ class InMemoryAPITestClient(APITestClient):
     
     def post(self, path, json=None, headers=None):
         """Make POST request using FastAPI TestClient."""
-        if headers is None and self.auth_required:
-            headers = {'Authorization': f'Bearer {self.token}'}
+        # Merge default headers with request-specific headers
+        merged_headers = {**self.default_headers}
+        if headers:
+            merged_headers.update(headers)
         
-        response = self.client.post(path, json=json, headers=headers)
+        response = self.client.post(path, json=json, headers=merged_headers)
         
         try:
             data = response.json()
@@ -71,10 +69,12 @@ class InMemoryAPITestClient(APITestClient):
     
     def delete(self, path, headers=None):
         """Make DELETE request using FastAPI TestClient."""
-        if headers is None and self.auth_required:
-            headers = {'Authorization': f'Bearer {self.token}'}
+        # Merge default headers with request-specific headers
+        merged_headers = {**self.default_headers}
+        if headers:
+            merged_headers.update(headers)
         
-        response = self.client.delete(path, headers=headers)
+        response = self.client.delete(path, headers=merged_headers)
         
         try:
             data = response.json()
