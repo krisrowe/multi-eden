@@ -253,49 +253,75 @@ class TestSecretAccess(BaseSecretsTest):
         self.assertEqual(new_get.secret.value, "new-value")
     
     def test_no_secrets_no_key(self):
-        """Test KEY_NOT_SET error when no secrets file exists and no cached key."""
+        """Test SECRET_NOT_FOUND error when no secrets file exists and no cached key."""
         # Step 1: Run cleanup and verify both files are gone
         self._cleanup_test_files()
         self.assertFalse(self.manager.get_secrets_file_path().exists())
         self.assertFalse(self.manager.get_cached_key_file_path().exists())
         
-        # Step 2: Try to access a secret without a key - should get KEY_NOT_SET
+        # Step 2: Try to access a secret without a key - should get SECRET_NOT_FOUND
         get_result = self.manager.get_secret("nonexistent-secret")
         self.assertFalse(get_result.meta.success)
-        self.assertEqual(get_result.meta.error.code, "KEY_NOT_SET")
+        self.assertEqual(get_result.meta.error.code, "SECRET_NOT_FOUND")
     
-    def test_operations_without_cached_key(self):
-        """Test KEY_NOT_SET vs SECRET_NOT_FOUND scenarios with proper setup."""
-        # Step 1: Start clean, try to get secret without key - should get KEY_NOT_SET
+    def test_get_secret_no_file_no_key(self):
+        """Test getting secret when no file exists and no cached key - should get SECRET_NOT_FOUND."""
         self._cleanup_test_files()
-        get_result1 = self.manager.get_secret("test-secret")
-        self.assertFalse(get_result1.meta.success)
-        self.assertEqual(get_result1.meta.error.code, "KEY_NOT_SET")
-        
-        # Step 2: Set key and secret, validate get works
+        get_result = self.manager.get_secret("test-secret")
+        self.assertFalse(get_result.meta.success)
+        self.assertEqual(get_result.meta.error.code, "SECRET_NOT_FOUND")
+    
+    def test_get_secret_file_exists_no_key(self):
+        """Test getting secret when file exists but no cached key - should get KEY_NOT_SET."""
+        # Set up key and secret first
         key_response = self.manager.set_cached_key("test-passphrase")
         self.assertTrue(key_response.meta.success)
         
         set_response = self.manager.set_secret("test-secret", "test-value")
         self.assertTrue(set_response.meta.success)
         
-        get_result2 = self.manager.get_secret("test-secret")
-        self.assertTrue(get_result2.meta.success)
-        
-        # Step 3: Delete just the key file (not secrets file)
+        # Delete just the key file (not secrets file)
         key_file = self.manager.get_cached_key_file_path()
         if key_file.exists():
             key_file.unlink()
         
-        # Step 4: Try to get same secret again - should get KEY_NOT_SET (secret exists but no key)
-        get_result3 = self.manager.get_secret("test-secret")
-        self.assertFalse(get_result3.meta.success)
-        self.assertEqual(get_result3.meta.error.code, "KEY_NOT_SET")
+        # Try to get same secret again - should get KEY_NOT_SET (secret exists but no key)
+        get_result = self.manager.get_secret("test-secret")
+        self.assertFalse(get_result.meta.success)
+        self.assertEqual(get_result.meta.error.code, "KEY_NOT_SET")
+    
+    def test_list_secrets_file_exists_no_key(self):
+        """Test listing secrets when file exists but no cached key - should get KEY_NOT_SET."""
+        # Set up key and secret first
+        key_response = self.manager.set_cached_key("test-passphrase")
+        self.assertTrue(key_response.meta.success)
+        
+        set_response = self.manager.set_secret("test-secret", "test-value")
+        self.assertTrue(set_response.meta.success)
+        
+        # Delete just the key file (not secrets file)
+        key_file = self.manager.get_cached_key_file_path()
+        if key_file.exists():
+            key_file.unlink()
         
         # Test list without cached key
         list_result = self.manager.list_secrets()
         self.assertFalse(list_result.meta.success)
         self.assertEqual(list_result.meta.error.code, "KEY_NOT_SET")
+    
+    def test_set_secret_file_exists_no_key(self):
+        """Test setting secret when file exists but no cached key - should get KEY_NOT_SET."""
+        # Set up key and secret first
+        key_response = self.manager.set_cached_key("test-passphrase")
+        self.assertTrue(key_response.meta.success)
+        
+        set_response = self.manager.set_secret("test-secret", "test-value")
+        self.assertTrue(set_response.meta.success)
+        
+        # Delete just the key file (not secrets file)
+        key_file = self.manager.get_cached_key_file_path()
+        if key_file.exists():
+            key_file.unlink()
         
         # Test set without cached key
         set_result = self.manager.set_secret("another-secret", "another-value")

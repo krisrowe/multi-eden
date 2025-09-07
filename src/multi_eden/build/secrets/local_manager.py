@@ -34,6 +34,9 @@ def loads_secrets(response_class, requires_file=True, requires_key=True, allow_e
     def decorator(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
+            # Import exceptions at function level to avoid UnboundLocalError
+            from multi_eden.build.config.exceptions import LocalSecretNotFoundException
+            
             # Extract passphrase from kwargs or use None
             passphrase = kwargs.get('passphrase', None)
             
@@ -47,7 +50,6 @@ def loads_secrets(response_class, requires_file=True, requires_key=True, allow_e
                     if requires_file:
                         # Operation requires file to exist
                         if throw_not_found:
-                            from multi_eden.build.config.exceptions import LocalSecretNotFoundException
                             # Extract secret_name from args (it's the second argument, first is secrets_manifest)
                             secret_name = args[1] if len(args) > 1 else 'unknown'
                             raise LocalSecretNotFoundException("No local secrets file found. Use 'invoke secrets.set' to create secrets.", secret_name=secret_name)
@@ -538,7 +540,6 @@ class LocalSecretsManager(SecretsManager):
         
         if secret_def is None:
             if throw_not_found:
-                from multi_eden.build.config.exceptions import LocalSecretNotFoundException
                 raise LocalSecretNotFoundException(f"Secret '{secret_name}' not found in local secrets file", secret_name=secret_name)
             
             return GetSecretResponse(
