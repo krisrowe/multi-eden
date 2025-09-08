@@ -8,7 +8,7 @@ environment configuration.
 import sys
 from pathlib import Path
 from invoke import task
-from multi_eden.build.tasks.config.decorators import requires_env_stack
+from multi_eden.build.tasks.config.decorators import config
 from multi_eden.build.config.exceptions import ConfigException
 
 
@@ -19,7 +19,7 @@ from multi_eden.build.config.exceptions import ConfigException
     'quiet': 'Suppress configuration display',
     'debug': 'Enable debug logging (sets LOG_LEVEL=DEBUG)'
 })
-@requires_env_stack("ai")  # Default to ai environment
+@config("ai")  # Default to ai environment
 def prompt(ctx, prompt_text, config_env=None, model='gemini-2.5-flash', grounding=False, quiet=False, debug=False):
     """
     Send a prompt to an AI model.

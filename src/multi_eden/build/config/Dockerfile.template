@@ -36,6 +36,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8000/health || exit 1
 
-# Start the application server with static config-env
-# Docker deployments use 'static' environment with fixed path structure
-CMD ["python", "-m", "{{APP_MODULE}}", "serve", "--config-env=static"]
+# Start the application server
+# All configuration is passed via environment variables
+CMD ["python", "-m", "{{APP_MODULE}}", "serve"]

@@ -17,25 +17,25 @@ from multi_eden.build.config.loading import load_env
 from multi_eden.build.config.models import LoadParams
 
 
-def requires_env_stack(environment: str = None):
-    """Decorator that requires a specific environment stack to be loaded.
+def config(profile: str = None):
+    """Decorator that loads environment configuration.
     
     Args:
-        environment: Default environment to load. If None, requires config_env parameter.
+        profile: Default profile to load. If None, requires profile parameter.
     """
     def decorator(func):
         @functools.wraps(func)
         def wrapper(ctx, *args, **kwargs):
-            # If no environment specified, try to get it from profile parameter
-            env_to_load = environment
-            if not env_to_load:
-                env_to_load = kwargs.get('profile')
-                if not env_to_load:
-                    print("❌ No environment specified and no profile parameter provided", file=sys.stderr)
+            # If no profile specified, try to get it from profile parameter
+            profile_to_load = profile
+            if not profile_to_load:
+                profile_to_load = kwargs.get('profile')
+                if not profile_to_load:
+                    print("❌ No profile specified and no profile parameter provided", file=sys.stderr)
                     sys.exit(1)
             
             try:
-                params = LoadParams(top_layer=env_to_load, fail_on_secret_error=True)
+                params = LoadParams(top_layer=profile_to_load, fail_on_secret_error=True)
                 load_env(params)
             except ConfigException as e:
                 print(e.guidance, file=sys.stderr)
@@ -46,8 +46,3 @@ def requires_env_stack(environment: str = None):
         return wrapper
     return decorator
 
-
-# Legacy decorator for backward compatibility
-def requires_config_env(environment: str = None):
-    """Legacy decorator: Use requires_env_stack instead."""
-    return requires_env_stack(environment)

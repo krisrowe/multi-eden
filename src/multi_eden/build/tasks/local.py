@@ -208,13 +208,13 @@ def check_port_available(port, check_listening=False, max_retries=10, retry_inte
         return not check_listening
 
 
-from multi_eden.build.tasks.config.decorators import requires_env_stack
+from multi_eden.build.tasks.config.decorators import config
 
 @task(help={
     'port': 'Port to run the API server on (default: 8000)',
     'background': 'Run in background (default: True)'
 })
-@requires_env_stack("local")
+@config("local")
 def api_start(ctx, port=None, config_env=DEFAULT_ENV, background=True):
     """Start the API server."""
     try:
@@ -284,7 +284,7 @@ def api_start(ctx, port=None, config_env=DEFAULT_ENV, background=True):
             print(f" Check your config/app.yaml api.venv_path setting")
             return False
         
-        # Environment configuration loaded by @requires_env_stack decorator
+        # Environment configuration loaded by @config decorator
         
         # Set environment variables
         env_vars = os.environ.copy()

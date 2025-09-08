@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 from invoke import task
-from multi_eden.build.tasks.config.decorators import requires_env_stack
+from multi_eden.build.tasks.config.decorators import config
 
 
 def get_repo_root():
@@ -43,7 +43,7 @@ def run_command(cmd, cwd=None, check=True, capture_output=False, env=None):
     'code': 'Python code to execute (use quotes for multi-line)',
     'args': 'Additional arguments to pass to the module/script'
 })
-@requires_env_stack
+@config()
 def py(ctx, config_env=None, module=None, script=None, code=None, args=""):
     """
     Execute Python code with proper environment configuration.
@@ -176,7 +176,7 @@ def _execute_code(code, core_dir):
 
 @task(help={
 })
-@requires_env_stack
+@config()
 def env(ctx, config_env=None):
     """
     Show current environment configuration for debugging.

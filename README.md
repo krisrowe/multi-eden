@@ -112,7 +112,7 @@ Multi-Eden's task runners automatically handle environment setup, configuration 
 
 ```bash
 # Start API server with environment auto-loading
-./invoke api-start --env=local-server --port=8000
+./invoke api-start --target=local-server --port=8000
 ./invoke api-status                   # Check server status
 ./invoke api-stop                     # Stop server
 ./invoke api-restart                  # Restart with new config
@@ -153,9 +153,9 @@ Multi-Eden's task runners automatically handle environment setup, configuration 
 
 ```bash
 # Deploy to Google Cloud with environment-specific config
-./invoke deploy --env=prod --tag=v1.2.0
-./invoke deploy-web --env=staging     # Deploy frontend to Firebase
-./invoke status --env=prod            # Check deployment status
+./invoke deploy --target=prod --tag=v1.2.0
+./invoke deploy-web --target=staging     # Deploy frontend to Firebase
+./invoke status --target=prod            # Check deployment status
 ```
 
 **Cloud Deployment**: Automatically:
@@ -172,8 +172,8 @@ Multi-Eden's task runners automatically handle environment setup, configuration 
 - `./invoke build --force` - Force rebuild even if image exists
 
 **Environment-Aware Cloud Deployment**:
-- `./invoke deploy --env=dev` - Deploy to dev environment using dev configuration
-- `./invoke deploy --env=prod --tag=v1.0.0` - Deploy specific tag to production
+- `./invoke deploy --target=dev` - Deploy to dev environment using dev configuration
+- `./invoke deploy --target=prod --tag=v1.0.0` - Deploy specific tag to production
 - `./invoke deploy-web` - Deploy frontend to Firebase Hosting
 - `./invoke status` - Check deployment status across environments
 
@@ -183,8 +183,8 @@ Multi-Eden's task runners automatically handle environment setup, configuration 
 # Manage environment configurations
 ./invoke config-env-list              # List all environments
 ./invoke config-env-create --env-name=staging --project-id=my-staging-project
-./invoke config-env-backup --env=prod # Backup to GCS
-./invoke config-env-restore --env=prod # Restore from GCS
+./invoke config-env-backup --target=prod # Backup to GCS
+./invoke config-env-restore --target=prod # Restore from GCS
 ```
 
 ## Getting Started with Your App
@@ -313,8 +313,8 @@ Multi-Eden's deploy system showcases the framework's most powerful capability: *
 ```bash
 # Build once, deploy anywhere
 ./invoke build                    # Creates gcr.io/my-project/my-app:20240827-2119
-./invoke deploy --env=dev         # Deploys to dev with dev configuration
-./invoke deploy --env=prod        # Deploys same image to prod with prod configuration
+./invoke deploy --target=dev         # Deploys to dev with dev configuration
+./invoke deploy --target=prod        # Deploys same image to prod with prod configuration
 ```
 
 **3. Automatic Configuration Injection**:
@@ -337,7 +337,7 @@ Multi-Eden's deploy system showcases the framework's most powerful capability: *
 
 **Tag Management**:
 - Auto-detects latest git tags for deployment
-- Supports deploying specific versions: `./invoke deploy --env=prod --tag=v1.0.0`
+- Supports deploying specific versions: `./invoke deploy --target=prod --tag=v1.0.0`
 - Maintains deployment history through tagged container images
 - Enables easy rollbacks by redeploying previous tags
 
@@ -349,12 +349,12 @@ git tag v1.2.0
 ./invoke build --tag=v1.2.0      # Build & push to gcr.io/my-project/my-app:v1.2.0
 
 # Deploy to staging first
-./invoke deploy --env=staging --tag=v1.2.0
+./invoke deploy --target=staging --tag=v1.2.0
 # → Reads config/settings/staging/
 # → Deploys to staging Cloud Run with staging database/secrets
 
 # Deploy to production
-./invoke deploy --env=prod --tag=v1.2.0
+./invoke deploy --target=prod --tag=v1.2.0
 # → Reads config/settings/prod/
 # → Deploys SAME image to prod Cloud Run with prod database/secrets
 ```

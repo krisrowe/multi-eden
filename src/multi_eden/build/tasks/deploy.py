@@ -15,22 +15,22 @@ except ImportError:
     from config.setup import get_sdk_root
 
 
-def validate_environment(env):
-    """Validate that environment is specified and required config files exist."""
-    if not env:
-        raise RuntimeError("❌ Environment not specified. Usage: invoke deploy --env=dev|prod|staging")
+def validate_environment(target):
+    """Validate that target is specified and required config files exist."""
+    if not target:
+        raise RuntimeError("❌ Target not specified. Usage: invoke deploy --target=dev|prod|staging")
     
     # Check secrets file
-    secrets_path = Path.cwd() / "config" / "secrets" / f"{env}" / "secrets.json"
+    secrets_path = Path.cwd() / "config" / "secrets" / f"{target}" / "secrets.json"
     if not secrets_path.exists():
         raise RuntimeError(f"❌ Secrets file not found: {secrets_path}")
     
     # Check providers configuration file
-    providers_path = Path.cwd() / "config" / "settings" / f"{env}" / "providers.json"
+    providers_path = Path.cwd() / "config" / "settings" / f"{target}" / "providers.json"
     if not providers_path.exists():
         raise RuntimeError(f"❌ Providers configuration file not found: {providers_path}")
     
-    print(f"✅ Environment validation passed:")
+    print(f"✅ Target validation passed:")
     print(f"   Secrets: {secrets_path}")
     print(f"   Providers: {providers_path}")
     
@@ -79,7 +79,7 @@ def verify_image_exists(project_id, image_name, tag):
     return True
 
 
-def run_terraform_deploy(project_id, full_image_name, env):
+def run_terraform_deploy(project_id, full_image_name, target):
     """Run Terraform deployment."""
     terraform_dir = get_sdk_root() / "terraform" / "infra"
     
@@ -96,7 +96,7 @@ def run_terraform_deploy(project_id, full_image_name, env):
         # Run terraform apply with absolute paths
         print("🚀 Running Terraform deployment...")
         repo_root = str(original_cwd.absolute())
-        cmd = f"terraform apply -auto-approve -var=project_id={project_id} -var=registry_project_id={project_id} -var=full_image_name={full_image_name} -var=environment={env} -var=config_root={repo_root}/config"
+        cmd = f"terraform apply -auto-approve -var=project_id={project_id} -var=registry_project_id={project_id} -var=full_image_name={full_image_name} -var=environment={target} -var=config_root={repo_root}/config"
         
         result = run_command(cmd)
         if result.returncode == 0:
@@ -111,23 +111,23 @@ def run_terraform_deploy(project_id, full_image_name, env):
 
 
 @task(help={
-    'env': 'Environment to deploy to (dev|prod|staging)',
+    'target': 'Target environment to deploy to (dev|prod|staging)',
     'tag': 'Specific image tag to deploy (optional)'
 })
-def deploy(ctx, env=None, tag=None):
+def deploy(ctx, target=None, tag=None):
     """
     Deploy API to Google Cloud Run.
     
     Usage:
-        invoke deploy --env=dev                    # Deploy to dev environment
-        invoke deploy --env=prod                   # Deploy to prod environment
-        invoke deploy --env=dev --tag=v1.0.0       # Deploy specific tag to dev
+        invoke deploy --target=dev                    # Deploy to dev environment
+        invoke deploy --target=prod                   # Deploy to prod environment
+        invoke deploy --target=dev --tag=v1.0.0       # Deploy specific tag to dev
     
     All configuration is read from the mounted secrets file.
     """
     try:
-        if not env:
-            raise RuntimeError("❌ Environment not specified. Usage: invoke deploy --env=dev|prod|staging")
+        if not target:
+            raise RuntimeError("❌ Target not specified. Usage: invoke deploy --target=dev|prod|staging")
         
         # Get project_id and image_name from the same source as build task
         from .build import get_build_config
@@ -139,8 +139,8 @@ def deploy(ctx, env=None, tag=None):
         # Construct the full image name for Terraform
         full_image_name = f"gcr.io/{project_id}/{image_name}:{deploy_tag}"
         
-        if run_terraform_deploy(project_id, full_image_name, env):
-            print(f"🎉 Deployment to {env} environment completed successfully!")
+        if run_terraform_deploy(project_id, full_image_name, target):
+            print(f"🎉 Deployment to {target} environment completed successfully!")
             print(f"📦 Image: gcr.io/{project_id}/{image_name}:{deploy_tag}")
             print(f"🏷️  Tag: {deploy_tag}")
             return True
@@ -203,6 +203,7 @@ def deploy_web(ctx, api_url=None):
         full_image_name = f"gcr.io/{project_id}/{image_name}:{deploy_tag}"
         
         # Run Terraform deployment which will trigger the null_resource
+        # Use dev as default target for frontend deployment
         if run_terraform_deploy(project_id, full_image_name, "dev"):  # Assuming dev environment
             print("✅ Terraform frontend deployment completed!")
         else:

@@ -9,7 +9,7 @@ import os
 import json
 from pathlib import Path
 from invoke import task
-from multi_eden.build.tasks.config.decorators import requires_env_stack
+from multi_eden.build.tasks.config.decorators import config
 
 
 def get_repo_root():
@@ -39,8 +39,8 @@ def run_command(cmd, cwd=None, check=True, capture_output=False, env=None):
 
 
 @task
-@requires_env_stack
-def docker_build(ctx, config_env=None):
+@config()
+def docker_build(ctx, profile=None):
     """
     Build local Docker image.
     
@@ -48,7 +48,7 @@ def docker_build(ctx, config_env=None):
     """
     try:
         print("🐳 Building local Docker image...")
-        print(f"🔧 Using configuration environment: {config_env}")
+        print(f"🔧 Using configuration environment: {profile}")
         
         repo_root = get_repo_root()
         core_dir = repo_root / "core"
@@ -75,8 +75,8 @@ def docker_build(ctx, config_env=None):
     'port': 'Port to expose (default: 8001)',
     'container_name': 'Container name'
 })
-@requires_env_stack
-def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app"):
+@config("local-docker")
+def docker_run(ctx, profile=None, port=8001, container_name = "multi-eden-app"):
     """
     Start local Docker API container.
     
@@ -89,7 +89,7 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
     """
     try:
         print("🐳 Starting local Docker API...")
-        print(f"🔧 Using configuration environment: {config_env}")
+        print(f"🔧 Using configuration environment: {profile}")
         
         repo_root = get_repo_root()
         
@@ -117,8 +117,8 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
             return False
         
         # Environment variables are already loaded by the decorator
-        # Read PORT directly from environment
-        port = os.environ.get("PORT", "8000")
+        # Use the port parameter, fallback to environment PORT, then default to 8001
+        port = port or os.environ.get("PORT", "8001")
         
         # Follow Cloud Run conventions: container listens on standard port 8000
         # Cloud Run will set PORT automatically, local Docker should mimic this
@@ -129,7 +129,7 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
             "docker run -d",
             f"--name {container_name}",
             f"-p {port}:{container_internal_port}",  # Map host port to standard container port
-            f"-e CONFIG_ENV={config_env}"
+            f"-e CONFIG_ENV={profile}"
         ]
         
 
@@ -179,8 +179,8 @@ def docker_run(ctx, config_env=None, port=8001, container_name = "multi-eden-app
 
 @task(help={
 })
-@requires_env_stack
-def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
+@config()
+def compose_up(ctx, profile=None, api_url="http://localhost:8001"):
     """
     Start full stack with Docker Compose.
     
@@ -192,7 +192,7 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
         invoke compose-up --config-env=prod        # Use prod environment
     """
     try:
-        print(f"🔧 Using configuration environment: {config_env}")
+        print(f"🔧 Using configuration environment: {profile}")
         print("🐳 Starting full stack with Docker Compose...")
         
         repo_root = get_repo_root()
@@ -210,7 +210,7 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
             print("❌ Virtual environment not found. Run 'make setup' first.")
             return False
         
-        token_cmd = f"{venv_python} -m core.auth.cli generate-static-test-user-token --config-env={config_env}"
+        token_cmd = f"{venv_python} -m core.auth.cli generate-static-test-user-token --config-env={profile}"
         token_result = run_command(token_cmd, cwd=str(repo_root), capture_output=True)
         
         if token_result.returncode != 0:
@@ -237,7 +237,7 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
         env_vars = os.environ.copy()
         env_vars["VITE_API_URL"] = api_url
         env_vars["VITE_AUTH_TOKEN"] = token
-        env_vars["CONFIG_ENV"] = config_env
+        env_vars["CONFIG_ENV"] = profile
         
         # Load and inject environment variables from configuration files
         try:
@@ -314,8 +314,8 @@ def compose_up(ctx, config_env=None, api_url="http://localhost:8001"):
 
 @task(help={
 })
-@requires_env_stack
-def compose_down(ctx, config_env=None):
+@config()
+def compose_down(ctx, profile=None):
     """
     Stop Docker Compose services.
     
@@ -323,7 +323,7 @@ def compose_down(ctx, config_env=None):
     """
     try:
         print("🚫 Stopping Docker Compose services...")
-        print(f"🔧 Using configuration environment: {config_env}")
+        print(f"🔧 Using configuration environment: {profile}")
         
         result = run_command("docker compose down")
         
@@ -341,8 +341,8 @@ def compose_down(ctx, config_env=None):
 
 @task(help={
 })
-@requires_env_stack
-def compose_logs(ctx, config_env=None):
+@config()
+def compose_logs(ctx, profile=None):
     """
     View Docker Compose logs.
     
@@ -350,7 +350,7 @@ def compose_logs(ctx, config_env=None):
     """
     try:
         print("📜 Viewing Docker Compose logs...")
-        print(f"🔧 Using configuration environment: {config_env}")
+        print(f"🔧 Using configuration environment: {profile}")
         
         # Note: This will run in foreground to show logs
         result = run_command("docker compose logs -f")
@@ -365,8 +365,8 @@ def compose_logs(ctx, config_env=None):
 
 @task(help={
 })
-@requires_env_stack
-def compose_restart(ctx, config_env=None):
+@config()
+def compose_restart(ctx, profile=None):
     """
     Restart Docker Compose services.
     
@@ -374,7 +374,7 @@ def compose_restart(ctx, config_env=None):
     """
     try:
         print("🔄 Restarting Docker Compose services...")
-        print(f"🔧 Using configuration environment: {config_env}")
+        print(f"🔧 Using configuration environment: {profile}")
         
         result = run_command("docker compose restart")
         
@@ -392,8 +392,8 @@ def compose_restart(ctx, config_env=None):
 
 @task(help={
 })
-@requires_env_stack
-def docker_status(ctx, config_env=None):
+@config()
+def docker_status(ctx, profile=None):
     """
     Check Docker container status.
     
@@ -401,7 +401,7 @@ def docker_status(ctx, config_env=None):
     """
     try:
         print("🔍 Checking Docker status...")
-        print(f"🔧 Using configuration environment: {config_env}")
+        print(f"🔧 Using configuration environment: {profile}")
         
         print("\n📦 Standalone Container:")
         result = run_command("docker ps -a --format 'table {{.ID}}\t{{.Image}}\t{{.Command}}\t{{.CreatedAt}}\t{{.Status}}\t{{.Ports}}\t{{.Names}}' | grep my-app", check=False)
@@ -426,8 +426,8 @@ def docker_status(ctx, config_env=None):
 
 @task(help={
 })
-@requires_env_stack
-def docker_cleanup(ctx, config_env=None):
+@config()
+def docker_cleanup(ctx, profile=None):
     """
     Clean up Docker resources.
     
@@ -435,7 +435,7 @@ def docker_cleanup(ctx, config_env=None):
     """
     try:
         print("🧹 Cleaning up Docker resources...")
-        print(f"🔧 Using configuration environment: {config_env}")
+        print(f"🔧 Using configuration environment: {profile}")
         
         # Clean up standalone container
         print("📦 Cleaning up standalone container...")
