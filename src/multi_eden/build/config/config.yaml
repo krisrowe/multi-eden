@@ -29,6 +29,7 @@ layers:
     inherits: "app"
     env:
       GEMINI_API_KEY: "secret:gemini-api-key"
+      STUB_AI: false
   
   api-test:
     inherits: "app"

@@ -5,7 +5,7 @@ import os
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from pydantic import BaseModel
+from .models import LoadParams, StagedVariable, StagingResult
 import yaml
 
 from .exceptions import (
@@ -27,35 +27,20 @@ from .secrets import get_secret
 logger = logging.getLogger(__name__)
 
 
-class StagedVariable(BaseModel):
-    """A single staged environment variable with metadata."""
-    name: str
-    value: str
-    source: str
-    is_override: bool = False
-    layer_name: str
-    is_side_loaded: bool = False
-
-
-class StagingResult(BaseModel):
-    """Result of staging environment variables with validators."""
-    staged_vars: Dict[str, StagedVariable]
-    validators: List[Any]  # List of validator class instances
 
 # Track last successful load: {"params": {...}, "loaded_vars": {...}}
 _last_load = None
 
 
-def _is_same_load(top_layer: str, base_layer: Optional[str], files: List[str]) -> bool:
-    """Check if this is the same load request as the current one."""
+def _is_same_load(params: LoadParams) -> bool:
+    """Check if this is the same load request as the current one using hash comparison."""
     if _last_load is None:
-            return False
+        return False
     
-    last_params = _last_load["params"]
-    return (
-        last_params["top_layer"] == top_layer and
-        last_params["files"] == files
-    )
+    # Compare using hash keys for robust comparison
+    current_key = params.get_cache_key()
+    last_key = _last_load.get("cache_key")
+    return current_key == last_key
 
 
 
@@ -173,17 +158,6 @@ def _load_staged_vars(staged_vars: Dict[str, StagedVariable]) -> Dict[str, str]:
     return {var_name: staged_var.value for var_name, staged_var in staged_vars.items()}
 
 
-def _commit_load(top_layer: str, base_layer: Optional[str], files: List[str], loaded_vars: Dict[str, str]):
-    """Commit a successful load operation."""
-    global _last_load
-    _last_load = {
-        "params": {
-            "top_layer": top_layer,
-            "base_layer": _resolve_base_layer(base_layer),  # Store resolved value
-            "files": files
-        },
-        "loaded_vars": loaded_vars
-    }
 
 def get_project_id_from_projects_file(env_name: str, var_name: str = "PROJECT_ID", configured_layer: str = None) -> str:
     """Get project ID from .projects file for specific environment."""
@@ -405,25 +379,20 @@ def _process_inheritance(top_layer: str, merged_config: Dict[str, Any]) -> Tuple
     result_config = _load_layer(top_layer)
     return result_config, validator_names
 
-def load_env(top_layer: str, files: Optional[List[str]] = None, force_reload: bool = False, fail_on_secret_error: bool = True, target_profile: Optional[str] = None) -> Dict[str, Tuple[str, str]]:
+def load_env(params: LoadParams) -> Dict[str, StagedVariable]:
     """
     Load environment with atomic staging/clearing/applying phases.
     
     Args:
-        top_layer: Primary environment layer to load
-        files: List of config files to load (defaults to SDK + app configs)
-        force_reload: Force reload even if same environment already loaded
-        fail_on_secret_error: If True, raise SecretUnavailableException on any secret failure.
-                             If False, skip failed secrets and continue with others.
-        target_profile: Optional target profile for side-loading with TARGET_ prefix
+        params: Load parameters including top_layer, files, base_layer, etc.
         
     Returns:
-        Dictionary of loaded variables with source info: {var_name: (value, source)}
+        Dictionary of staged variables that were loaded: {var_name: StagedVariable}
     """
     
-    if files is None:
+    if params.files is None:
         # Default file sources
-        files = [
+        params.files = [
             "config.yaml",  # SDK environments
             "{cwd}/config/config.yaml"  # App environments
         ]
@@ -432,44 +401,19 @@ def load_env(top_layer: str, files: Optional[List[str]] = None, force_reload: bo
     _clear_layer_processing_stack()
     
     # Check if this is the same load request as current
-    if not force_reload and _is_same_load(top_layer, None, files):
-        logger.debug(f"Skipping reload - same environment already loaded: '{top_layer}'")
+    if not params.force_reload and _is_same_load(params):
+        logger.debug(f"Skipping reload - same environment already loaded: '{params.top_layer}'")
         return {}  # Return empty dict since nothing changed
     
     # PHASE 1: STAGING - Load all new values without touching os.environ
-    staging_result = _stage_environment_variables(top_layer, files, fail_on_secret_error)
-    staged_vars = staging_result.staged_vars
-    validators = staging_result.validators
-    
-    # PHASE 1.5: SIDE-LOADING - Load target profile with TARGET_ prefix if specified
-    if target_profile:
-        target_staging_result = _stage_environment_variables(target_profile, files, fail_on_secret_error)
-        target_vars = target_staging_result.staged_vars
-        target_validators = target_staging_result.validators
-        
-        # Add TARGET_ prefix to all target profile variables
-        for var_name, staged_var in target_vars.items():
-            staged_vars[f"TARGET_{var_name}"] = StagedVariable(
-                name=f"TARGET_{var_name}",
-                value=staged_var.value,
-                source=f"side-loaded from {staged_var.source}",
-                is_override=False,  # Side-loaded variables are not overrides
-                layer_name=staged_var.layer_name,
-                is_side_loaded=True
-            )
-        
-        # Add target validators to our list
-        validators.extend(target_validators)
-    
-    # PHASE 1.6: VALIDATION - Run collected validators
-    _run_validators(staged_vars, validators, top_layer, target_profile)
+    staged_vars = _stage_environment_variables(params)
     
     # PHASE 2: CLEARING - Remove old variables (only after staging succeeds)
     _clear_previous_variables()
     
     # PHASE 3: APPLYING - Apply all new variables atomically
     _apply_staged_variables(staged_vars)
-    _commit_load_state(top_layer, files, staged_vars)
+    _commit_load_state(params, staged_vars)
     
     # Display environment variables table
     _display_environment_variables_table(staged_vars)
@@ -477,36 +421,182 @@ def load_env(top_layer: str, files: Optional[List[str]] = None, force_reload: bo
     return staged_vars
 
 
-def _stage_environment_variables(top_layer: str, files: List[str], fail_on_secret_error: bool) -> StagingResult:
+def _stage_environment_variables(params: LoadParams) -> Dict[str, StagedVariable]:
     """
     PHASE 1: STAGING - Load all new values into a temporary dictionary without touching os.environ.
     
+    This function builds a prioritized layer list by walking inheritance chains,
+    then processes layers from lowest to highest priority.
+    
     Args:
-        top_layer: Primary environment layer to load
-        files: List of config files to load
-        fail_on_secret_error: If True, raise SecretUnavailableException on any secret failure.
-                             If False, skip failed secrets and continue with others.
+        params: Load parameters including top_layer, base_layer, etc.
     
     Returns:
-        StagingResult with staged variables and validator names
-        
-    Raises:
-        SecretUnavailableException: If fail_on_secret_error=True and any secret fails
+        Dictionary of staged variables: {var_name: StagedVariable}
     """
-    logger.debug(f"STAGING: Loading environment '{top_layer}' from files: {files}")
+    logger.debug(f"STAGING: Loading environment '{params.top_layer}' from files: {params.files}")
     
     # Load and merge configuration files
-    merged_config = _load_and_merge_files(files)
+    merged_config = _load_and_merge_files(params.files)
     
-    # Process inheritance and load new variables
-    env_config, validator_names = _process_inheritance(top_layer, merged_config)
-    staging_result = _load_environment_variables_staged(env_config, top_layer, fail_on_secret_error)
-    staged_vars = staging_result.staged_vars
-    layer_validators = staging_result.validators
-    validator_names.extend(layer_validators)
+    # Build prioritized layer list
+    layer_names = _build_prioritized_layer_list(params.top_layer, merged_config, params.base_layer)
+    logger.debug(f"STAGING: Processing layers in order: {layer_names}")
     
-    logger.debug(f"STAGING: Successfully staged {len(staged_vars)} variables with {len(validator_names)} validators")
-    return StagingResult(staged_vars=staged_vars, validators=validator_names)
+    # Process layers from lowest to highest priority (reverse order)
+    staged_vars = {}
+    validators = []
+    
+    for layer_name in reversed(layer_names):
+        logger.debug(f"STAGING: Processing layer '{layer_name}'")
+        layer_vars, layer_validators = _load_layer_variables(layer_name, merged_config, params.fail_on_secret_error)
+        
+        # Merge layer variables (higher priority layers overwrite lower ones)
+        for var_name, staged_var in layer_vars.items():
+            staged_vars[var_name] = staged_var
+            logger.debug(f"STAGING: Set {var_name} = {staged_var.value} (from {layer_name})")
+        
+        validators.extend(layer_validators)
+    
+    # PHASE 1.5: COMPATIBILITY - Generate TARGET_ prefixed variables for base layer
+    # This ensures existing validators and API client code continue to work
+    if params.base_layer:
+        logger.debug(f"STAGING: Generating TARGET_ prefixed variables for base layer '{params.base_layer}'")
+        base_layer_names = _build_prioritized_layer_list(params.base_layer, merged_config, None)
+        for layer_name in reversed(base_layer_names):
+            layer_vars, _ = _load_layer_variables(layer_name, merged_config, params.fail_on_secret_error)
+            
+            # Add TARGET_ prefix to all base layer variables
+            for var_name, staged_var in layer_vars.items():
+                staged_vars[f"TARGET_{var_name}"] = StagedVariable(
+                    name=f"TARGET_{var_name}",
+                    value=staged_var.value,
+                    source=f"base layer from {staged_var.source}",
+                    is_override=False,
+                    layer_name=staged_var.layer_name,
+                    is_side_loaded=True
+                )
+                logger.debug(f"STAGING: Generated TARGET_{var_name} = {staged_var.value} (from base layer {layer_name})")
+    
+    # PHASE 1.6: VALIDATION - Run collected validators
+    _run_validators(staged_vars, validators, params.top_layer)
+    
+    logger.debug(f"STAGING: Successfully staged {len(staged_vars)} variables")
+    return staged_vars
+
+
+def _build_prioritized_layer_list(top_layer: str, merged_config: Dict[str, Any], base_layer: Optional[str] = None) -> List[str]:
+    """
+    Build a prioritized list of layer names by walking inheritance chains.
+    
+    Args:
+        top_layer: The top layer to start from
+        merged_config: Merged configuration from all files
+        base_layer: Optional base layer to add at the bottom
+        
+    Returns:
+        List of layer names in priority order (lowest to highest)
+    """
+    layer_names = []
+    visited = set()
+    
+    def _add_layer_recursive(layer_name: str):
+        """Recursively add layer and its inheritance chain, avoiding duplicates."""
+        if layer_name in visited:
+            logger.warning(f"Circular dependency detected: {layer_name} already in chain")
+            return
+        
+        visited.add(layer_name)
+        
+        if layer_name not in merged_config['environments']:
+            logger.warning(f"Layer '{layer_name}' not found in configuration")
+            return
+        
+        env_config = merged_config['environments'][layer_name]
+        
+        # Process inheritance first (add parents before this layer)
+        if 'inherits' in env_config:
+            parent_names = env_config['inherits']
+            if isinstance(parent_names, str):
+                parent_names = [parent_names]
+            
+            for parent_name in parent_names:
+                _add_layer_recursive(parent_name)
+        
+        # Add this layer
+        layer_names.append(layer_name)
+        logger.debug(f"Added layer '{layer_name}' to priority list")
+    
+    # Add base layer first (lowest priority)
+    if base_layer:
+        _add_layer_recursive(base_layer)
+    
+    # Add top layer and its inheritance chain
+    _add_layer_recursive(top_layer)
+    
+    return layer_names
+
+
+def _load_layer_variables(layer_name: str, merged_config: Dict[str, Any], fail_on_secret_error: bool) -> Tuple[Dict[str, StagedVariable], List[Any]]:
+    """
+    Load variables from a single layer.
+    
+    Args:
+        layer_name: Name of the layer to load
+        merged_config: Merged configuration from all files
+        fail_on_secret_error: Whether to fail on secret errors
+        
+    Returns:
+        Tuple of (staged_vars, validators)
+    """
+    if layer_name not in merged_config['environments']:
+        logger.warning(f"Layer '{layer_name}' not found in configuration")
+        return {}, []
+    
+    env_config = merged_config['environments'][layer_name]
+    staged_vars = {}
+    validators = []
+    
+    # Collect validators from this layer
+    layer_validators = _collect_validators_from_config(env_config, layer_name)
+    validators.extend(layer_validators)
+    
+    # Load environment variables from this layer
+    for key, value in env_config.get('env', {}).items():
+        env_var_name = key.upper()
+        
+        # Check if already in os.environ (highest priority)
+        if env_var_name in os.environ:
+            existing_value = os.environ[env_var_name]
+            staged_vars[env_var_name] = StagedVariable(
+                name=env_var_name,
+                value=existing_value,
+                source='os.environ',
+                is_override=False,
+                layer_name=layer_name,
+                is_side_loaded=False
+            )
+            continue
+        
+        # Process new value
+        try:
+            processed_value = _process_value(value, env_var_name, layer_name)
+            staged_vars[env_var_name] = StagedVariable(
+                name=env_var_name,
+                value=processed_value,
+                source=f'config.yaml:{layer_name}',
+                is_override=False,
+                layer_name=layer_name,
+                is_side_loaded=False
+            )
+        except Exception as e:
+            if fail_on_secret_error:
+                logger.error(f"Failed to process {env_var_name}: {e}")
+                raise
+            else:
+                logger.warning(f"Failed to process {env_var_name}: {e}")
+    
+    return staged_vars, validators
 
 
 def _clear_previous_variables() -> None:
@@ -538,24 +628,21 @@ def _apply_staged_variables(staged_vars: Dict[str, StagedVariable]) -> None:
     logger.debug("APPLYING: Completed applying staged variables")
 
 
-def _commit_load_state(top_layer: str, files: List[str], staged_vars: Dict[str, StagedVariable]) -> None:
+def _commit_load_state(params: LoadParams, staged_vars: Dict[str, StagedVariable]) -> None:
     """
     PHASE 3: COMMIT - Update global _last_load tracker with successful load.
     
     Args:
-        top_layer: Primary environment layer that was loaded
-        files: Files that were loaded
+        params: Load parameters used for this load
         staged_vars: Variables that were loaded with metadata
     """
     global _last_load
     _last_load = {
-        "params": {
-            "top_layer": top_layer,
-            "files": files
-        },
+        "cache_key": params.get_cache_key(),
+        "params": params.model_dump(),
         "loaded_vars": {var_name: staged_var.value for var_name, staged_var in staged_vars.items()}
     }
-    logger.debug(f"COMMIT: Updated global state for environment '{top_layer}'")
+    logger.debug(f"COMMIT: Updated global state for environment '{params.top_layer}'")
 
 
 
@@ -673,14 +760,13 @@ def _clear_layer_processing_stack():
 
 
 def _run_validators(staged_vars: Dict[str, StagedVariable], 
-                   validators: List[Any], top_layer: str, target_profile: Optional[str] = None) -> None:
+                   validators: List[Any], top_layer: str) -> None:
     """Run all collected validators on the staged variables.
     
     Args:
         staged_vars: Dictionary of staged environment variables with source info
         validators: List of validator instances to run
         top_layer: The primary environment layer being loaded
-        target_profile: Optional target profile for side-loading
         
     Raises:
         ConfigException: If any validator fails validation
@@ -690,8 +776,8 @@ def _run_validators(staged_vars: Dict[str, StagedVariable],
     
     for validator in unique_validators:
         try:
-            if validator.should_validate(staged_vars, top_layer, target_profile):
-                validator.validate(staged_vars, top_layer, target_profile)
+            if validator.should_validate(staged_vars, top_layer):
+                validator.validate(staged_vars, top_layer)
         except Exception as e:
             # Re-raise ConfigException as-is, wrap others
             from multi_eden.build.config.exceptions import ConfigException

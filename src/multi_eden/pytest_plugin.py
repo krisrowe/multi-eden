@@ -33,8 +33,8 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     """Configure pytest with environment-specific settings."""
-    # The pytest plugin handles --dproj and --target parameters
-    # for PROJECT_ID resolution and side-loading
+    # The pytest plugin doesn't handle --env-name parameter
+    # That should be handled by the app's own configuration system
     pass
 
 
@@ -69,9 +69,14 @@ def pytest_runtest_setup(item):
                 pass
         
         try:
-            # Load environment with optional side-loading
-            load_env(top_layer=env_layer, fail_on_secret_error=True, target_profile=target_profile)
-                    
+            # Load environment with target as base layer
+            from multi_eden.build.config.models import LoadParams
+            params = LoadParams(
+                top_layer=env_layer,
+                fail_on_secret_error=True,
+                base_layer=target_profile  # --target becomes base_layer
+            )
+            load_env(params)
         except ConfigException as e:
             # Use the exception's built-in guidance
             pytest.skip(f"Test requires {env_layer} environment but configuration is missing: {e.guidance}")
@@ -161,108 +166,38 @@ def _load_test_config() -> Dict[str, Any]:
     return {}
 
 
-def _get_api_module_from_config() -> Optional[str]:
-    """
-    Get the API module path from app.yaml configuration.
-    
-    Returns the module path (e.g., "core.api:app") or None if not found.
-    """
-    try:
-        # Look for app.yaml in current working directory
-        app_yaml_path = Path.cwd() / 'config' / 'app.yaml'
-        if not app_yaml_path.exists():
-            app_yaml_path = Path.cwd() / 'app.yaml'
+# Conditionally register api_client fixture only if TEST_API_IN_MEMORY is set
+import os
+if os.environ.get('TEST_API_IN_MEMORY'):
+    @pytest.fixture(scope="function")
+    def api_client():
+        """
+        API client that chooses type based on TEST_API_IN_MEMORY environment variable.
         
-        if app_yaml_path.exists():
-            with open(app_yaml_path, 'r') as f:
-                config = yaml.safe_load(f)
-                return config.get('api', {}).get('module')
+        Only registered if TEST_API_IN_MEMORY is explicitly set:
+        - TEST_API_IN_MEMORY=true: Returns InMemoryAPITestClient
+        - TEST_API_IN_MEMORY=false: Returns RemoteAPITestClient
+        """
+        from multi_eden.build.api_client.in_memory_client import InMemoryAPITestClient
+        from multi_eden.build.api_client.remote_client import RemoteAPITestClient
         
-        return None
-    except Exception:
-        return None
-
-
-@pytest.fixture(scope="function")
-def api_client():
-    """
-    API client that chooses type based on TEST_API_MODE environment variable.
-    
-    - TEST_API_MODE=IN_MEMORY: Returns InMemoryAPITestClient
-    - TEST_API_MODE=REMOTE: Returns RemoteAPITestClient
-    - TEST_API_MODE not set: Returns None
-    """
-    from multi_eden.build.api_client.in_memory_client import InMemoryAPITestClient
-    from multi_eden.build.api_client.remote_client import RemoteAPITestClient
-    
-    test_api_mode = os.environ.get('TEST_API_MODE')
-    
-    if test_api_mode is None:
-        return None
-    
-    if test_api_mode == 'IN_MEMORY':
-        # In-memory API client
-        try:
-            from fastapi.testclient import TestClient
-            # Try to import the app module - this will be configured per app
-            # Read the API module from app.yaml configuration
-            app_module = _get_api_module_from_config()
-            if not app_module:
-                pytest.skip("API module not configured in app.yaml")
-            
-            import importlib
-            module_path, app_name = app_module.split(':')
-            module = importlib.import_module(module_path)
-            app = getattr(module, app_name)
-            fastapi_client = TestClient(app)
-            return InMemoryAPITestClient(fastapi_client, auth_required=True)
-        except ImportError as e:
-            pytest.skip(f"InMemoryAPITestClient not available: {e}")
-    
-    elif test_api_mode == 'REMOTE':
-        # Remote API client - build URL based on environment
-        api_url = _build_remote_api_url()
-        if not api_url:
-            pytest.skip("❌ Remote API testing requires a target server. Options:\n"
-                       "  • Run with --target=local to test against local server\n"
-                       "  • Set TEST_API_URL environment variable manually\n"
-                       "  • Use IN_MEMORY mode instead of REMOTE mode")
+        test_api_in_memory = os.environ.get('TEST_API_IN_MEMORY').lower()
         
-        # Set JWT_SECRET_KEY from side-loaded TARGET_JWT_SECRET_KEY for remote API testing
-        target_jwt_secret = os.environ.get('TARGET_JWT_SECRET_KEY')
-        if target_jwt_secret:
-            os.environ['JWT_SECRET_KEY'] = target_jwt_secret
+        if test_api_in_memory == 'true':
+            # In-memory API client
+            try:
+                from fastapi.testclient import TestClient
+                # Try to import the app module - this will be configured per app
+                from core.api import app
+                fastapi_client = TestClient(app)
+                return InMemoryAPITestClient(fastapi_client, auth_required=True)
+            except ImportError as e:
+                pytest.skip(f"InMemoryAPITestClient not available: {e}")
         
-        return RemoteAPITestClient(api_url, auth_required=True)
-    
-    else:
-        pytest.skip(f"Invalid TEST_API_MODE value: {test_api_mode}. Use IN_MEMORY or REMOTE.")
-
-
-def _build_remote_api_url() -> Optional[str]:
-    """
-    Build the remote API URL based on environment variables.
-    
-    Returns None if unable to build a valid URL.
-    """
-    # Check if we have a pre-built URL
-    if 'TEST_API_URL' in os.environ:
-        return os.environ['TEST_API_URL']
-    
-    # Check if we're targeting local
-    target_local = os.environ.get('TARGET_LOCAL', '').lower()
-    if target_local == 'true':
-        # Use localhost with default port
-        port = os.environ.get('PORT', '8000')
-        return f"http://localhost:{port}"
-    
-    # Check if we have a target project ID for remote testing
-    target_project_id = os.environ.get('TARGET_PROJECT_ID')
-    if target_project_id:
-        # Build URL for remote project
-        # This would need to be configured based on your deployment setup
-        # For now, return None to indicate we can't build it
-        return None
-    
-    # No way to build URL
-    return None
+        elif test_api_in_memory == 'false':
+            # Remote API client
+            api_url = os.environ.get('TEST_API_URL', 'http://localhost:8000')
+            return RemoteAPITestClient(api_url, auth_required=True)
+        
+        else:
+            pytest.skip(f"Invalid TEST_API_IN_MEMORY value: {test_api_in_memory}")
