@@ -425,6 +425,9 @@ def load_env(top_layer: str, base_layer: Optional[str] = None, files: Optional[L
     _apply_staged_variables(staged_vars)
     _commit_load_state(top_layer, base_layer, files, staged_vars)
     
+    # Display environment variables table
+    _display_environment_variables_table(staged_vars)
+    
     return staged_vars
 
 
@@ -652,4 +655,50 @@ def _run_validators(staged_vars: Dict[str, Tuple[str, str]],
                 raise
             else:
                 raise ConfigException(f"Validator {validator_name} failed: {e}")
+
+
+def _display_environment_variables_table(staged_vars: Dict[str, Tuple[str, str]]) -> None:
+    """Display environment variables table with status indicators.
+    
+    Args:
+        staged_vars: Dictionary of staged environment variables with source info
+    """
+    import sys
+    
+    if not staged_vars:
+        return
+    
+    print("\n" + "=" * 76, file=sys.stderr)
+    print("🔧 ENVIRONMENT VARIABLES", file=sys.stderr)
+    print("=" * 76, file=sys.stderr)
+    
+    # Prepare variables for display
+    all_vars = []
+    for name, (value, source) in staged_vars.items():
+        # Limit value to 24 chars max to ensure space before SOURCE column
+        if len(value) > 24:
+            display_value = value[:21] + "..."
+        else:
+            display_value = value
+        
+        # Determine status based on value availability
+        if value and value != "(not available)":
+            status = "✅"
+        else:
+            status = "❌"
+            display_value = "(not available)"
+        
+        all_vars.append((name, status, display_value, source))
+    
+    # Sort variables by name for consistent display
+    all_vars.sort(key=lambda x: x[0])
+    
+    # Show column headers and rows
+    print(f"{'VARIABLE':<25} {'VALUE':<25} {'SOURCE':<25}", file=sys.stderr)
+    print("-" * 76, file=sys.stderr)
+    
+    for name, status, value, source in all_vars:
+        print(f"{status} {name:<23} {value:<24} {source:<25}", file=sys.stderr)
+    
+    print("=" * 76, file=sys.stderr)
 
