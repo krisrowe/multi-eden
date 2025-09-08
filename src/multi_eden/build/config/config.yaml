@@ -1,0 +1,64 @@
+layers:
+  app:  # Base application layer
+    env:
+      APP_ID: "multi-eden-sdk"
+      CUSTOM_AUTH_ENABLED: true
+  
+  cloud:  # Shared cloud configuration
+    inherits: "app"
+    env:
+      STUB_AI: false
+      STUB_DB: false
+      GEMINI_API_KEY: "secret:gemini-api-key"
+      JWT_SECRET_KEY: "secret:jwt-secret-key"
+      ALLOWED_USER_EMAILS: "secret:allowed-user-emails"
+      GCP_REGION: "us-central1"
+      GCP_ZONE: "us-central1-a"
+  
+  unit:
+    inherits: "app"
+    env:
+      JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"  # Mock value
+      ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"  # Mock value
+      STUB_AI: true
+      STUB_DB: true
+      TEST_API_IN_MEMORY: true
+      TEST_OMIT_INTEGRATION: true
+  
+  ai:
+    inherits: "app"
+    env:
+      GEMINI_API_KEY: "secret:gemini-api-key"
+  
+  api-test:
+    inherits: "app"
+    env:
+      TEST_API_IN_MEMORY: false  # Indicates external API testing
+  
+  db-test:
+    inherits: "app"
+    env:
+      JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"  # Mock value
+      STUB_AI: true
+      STUB_DB: false  # Real database for testing
+  
+  local:
+    inherits: "app"
+    env:
+      STUB_AI: true
+      STUB_DB: true
+      LOCAL: true
+      PORT: 8000
+      GEMINI_API_KEY: "fake-local-gemini-key"  # Mock value
+      JWT_SECRET_KEY: "local-jwt-secret"  # Mock value
+      ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
+  
+  dev:
+    inherits: "cloud"
+    env:
+      PROJECT_ID: "$.projects.dev"
+  
+  prod:
+    inherits: "cloud"
+    env:
+      PROJECT_ID: "$.projects.prod"

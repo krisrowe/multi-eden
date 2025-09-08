@@ -25,12 +25,12 @@ def requires_env_stack(environment: str = None):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(ctx, *args, **kwargs):
-            # If no environment specified, try to get it from config_env parameter
+            # If no environment specified, try to get it from env_name or config_env parameter
             env_to_load = environment
             if not env_to_load:
-                env_to_load = kwargs.get('config_env')
+                env_to_load = kwargs.get('env_name') or kwargs.get('config_env')
                 if not env_to_load:
-                    print("❌ No environment specified and no config_env parameter provided", file=sys.stderr)
+                    print("❌ No environment specified and no env_name parameter provided", file=sys.stderr)
                     sys.exit(1)
             
             try:

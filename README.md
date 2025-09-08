@@ -29,25 +29,64 @@ The core strength of Multi-Eden is its sophisticated configuration framework (`m
 - **Automatic Environment Setup**: Tests automatically configure the right stubs and providers
 - **API Integration Testing**: Test your API endpoints with real or mocked backends
 
-## Quick Start
+## Quick Start: Building Apps with Multi-Eden
 
-Getting started with Multi-Eden is designed to be as simple as possible. Just clone and run:
+### From an App Repository
+
+Working with an app built around Multi-Eden is designed to be incredibly simple:
 
 ```bash
-# Clone the repository
-git clone https://github.com/krisrowe/multi-eden.git
-cd multi-eden
+# Clone an app repository that uses Multi-Eden
+git clone https://github.com/your-org/your-app.git
+cd your-app
 
-# Run unit tests - everything should just work!
-./invoke test unit
+# Install and run tests - everything should just work!
+make install
+pytest
 ```
 
-That's it! The `./invoke` script will automatically:
-- Set up a Python virtual environment
-- Install all dependencies
-- Install the package in development mode
-- Configure the appropriate test environment with stubbing
-- Run your requested command
+**What happens**: All tests pass immediately with some AI integration tests skipped (no API key needed yet).
+
+```bash
+# Register a secret and run AI tests too
+invoke secrets.set gemini-api-key --denv=local
+pytest tests/ai/
+```
+
+**What happens**: AI tests now pass with real API integration.
+
+```bash
+# Start the API server
+invoke api-start
+
+# Run API tests against the running server
+pytest tests/api/ --denv=local
+
+# Build and deploy
+invoke build
+invoke deploy --profile=dev
+```
+
+**What happens**: Complete development workflow from testing to deployment with minimal commands.
+
+### From an Empty Directory (New App Initialization)
+
+Create a new app using Multi-Eden with a single command:
+
+```bash
+# From any empty directory
+curl -sSL https://raw.githubusercontent.com/krisrowe/multi-eden/main/install.sh | bash
+
+# This creates a local venv, installs the SDK, and runs init-app
+# Follow the prompts to set up your new application
+```
+
+**What happens**: 
+- Creates a Python virtual environment
+- Installs Multi-Eden SDK
+- Runs `invoke init-app` to scaffold your new application
+- Sets up configuration files and project structure
+- Ready to start development immediately
 
 ## Task System: Automated Environment Management
 
@@ -349,8 +388,13 @@ multi-eden/
 │   └── cli.py              # Command-line interface
 ├── tests/                   # Framework tests
 ├── config/                  # Default configurations
+│   └── config.md           # Configuration concepts and design principles
 └── invoke                   # Task runner with auto-setup
 ```
+
+## Configuration System
+
+For detailed information about Multi-Eden's configuration system, see [Configuration Concepts](src/multi_eden/build/config/config.md).
 
 ## Key Benefits of Multi-Eden's Stubbing System
 
