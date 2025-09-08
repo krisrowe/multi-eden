@@ -24,48 +24,13 @@ logger = logging.getLogger(__name__)
 def get_test_api_url():
     """Get the test API URL based on current environment configuration.
     
-    Only returns a URL when:
-    - TEST_API_MODE=false (API tests need external server)
-    - TEST_API_URL is not already set (don't override explicit values)
+    Delegates to the shared testing utility.
     
     Returns:
         list: List of (var_name, var_value, var_source) tuples
     """
-    # Only inject if API tests need external server
-    if os.getenv('TEST_API_MODE', '') != 'REMOTE':
-        return []
-    
-    # Don't override explicit TEST_API_URL
-    if os.getenv('TEST_API_URL'):
-        return []
-    
-    # Build API URL from available environment variables
-    api_url = None
-    
-    # Local development
-    if os.getenv('LOCAL', '').lower() == 'true':
-        port = os.getenv('PORT')
-        if port and port != '80':
-            api_url = f'http://localhost:{port}'
-        else:
-            api_url = 'http://localhost'
-    
-    # Cloud environment - construct Cloud Run URL
-    elif project_id := os.getenv('PROJECT_ID'):
-        app_id = os.getenv('APP_ID')
-        if app_id:
-            try:
-                from multi_eden.internal.gcp import get_cloud_run_service_url
-                service_name = f'{app_id}-api'
-                api_url = get_cloud_run_service_url(project_id, service_name)
-            except Exception as e:
-                logger.warning(f'Could not get Cloud Run URL via API: {e}')
-                # Could add fallback URL construction here if needed
-    
-    if api_url:
-        return [('TEST_API_URL', api_url, 'task-derived')]
-    
-    return []
+    from multi_eden.build.config.testing import get_test_api_url as shared_get_test_api_url
+    return shared_get_test_api_url()
 
 
 def _get_test_paths(suite: str) -> list:
@@ -95,12 +60,13 @@ def _get_test_paths(suite: str) -> list:
 
 @task(help={
     'suite': 'Test suite to run (unit, ai, firestore, api)',
+    'target': 'Target profile for side-loading (e.g., local, dev, prod)',
     'verbose': 'Enable verbose output',
     'test_name': 'Filter to specific test method(s) (e.g., "test_long_name_product" or "test_*")',
     'show_config': 'Show detailed configuration including partial secret values',
     'quiet': 'Suppress configuration display (show only test results)'
 })
-def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config=False, quiet=False):
+def test(ctx, suite, target=None, config_env=None, verbose=False, test_name=None, show_config=False, quiet=False):
     """
     Run tests for a specific suite.
     
@@ -123,19 +89,21 @@ def test(ctx, suite, config_env=None, verbose=False, test_name=None, show_config
     # Just get test paths for pytest - no need to reload full test config
     test_paths = _get_test_paths(suite) if suite else None
     
-    return run_pytest(suite, config_env, verbose, test_name, show_config, test_paths, quiet)
+    return run_pytest(suite, target, config_env, verbose, test_name, show_config, test_paths, quiet)
 
 
-def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, test_paths=None, quiet=False):
+def run_pytest(suite, target, config_env, verbose, test_name=None, show_config=False, test_paths=None, quiet=False):
     """
     Run pytest with the specified suite and environment.
     
     Args:
         suite: Test suite name
+        target: Target profile for side-loading (e.g., local, dev, prod)
+        config_env: Configuration environment (legacy parameter)
         verbose: Whether to enable verbose output
         test_name: Optional test name filter (e.g., "test_long_name_product")
         show_config: Whether to show detailed configuration including secrets
-        test_config: Pre-loaded test configuration (optional)
+        test_paths: Pre-loaded test paths (optional)
         quiet: Whether to suppress runtime configuration display
         
     Returns:
@@ -198,6 +166,9 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     if config_env:
         cmd.extend(["--config-env", config_env])
     
+    if target:
+        cmd.extend(["--target", target])
+    
     if verbose:
         cmd.append("-v")
     
@@ -236,6 +207,10 @@ def run_pytest(suite, config_env, verbose, test_name=None, show_config=False, te
     
     # Convert command to pytest args (skip the pytest executable)
     pytest_args = cmd[1:] if cmd[0].endswith('pytest') else cmd[2:]  # Skip 'python -m pytest'
+    
+    # Debug: Show the actual command being executed
+    logger.debug(f"🔧 Full command: {' '.join(cmd)}")
+    logger.debug(f"🔧 Pytest args: {' '.join(pytest_args)}")
     
     try:
         result_code = pytest.main(pytest_args)

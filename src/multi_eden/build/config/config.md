@@ -293,12 +293,77 @@ This declaration-based approach ensures that environment loading is predictable,
 | `pytest tests/db/` | None (pytest plugin) | `--dproj` | Cloud Secrets | `PROJECT_ID` |
 | `pytest tests/api/` | None (pytest plugin) | `--target` | Side-load | None (small subset of tests may depend on side-loading the profile corresponding to --target to validate target's configuration) |
 | `pytest tests/` | None (pytest plugin) | `--dproj --target` | Both | Mixed requirements from different test suites |
+| `invoke test unit` | None (pytest plugin) | `--dproj` | None | `JWT_SECRET_KEY`, `STUB_AI`, `STUB_DB`, `TEST_API_MODE`, `TEST_OMIT_INTEGRATION` |
+| `invoke test ai` | None (pytest plugin) | `--dproj` | Cloud Secrets | `GEMINI_API_KEY` |
+| `invoke test api` | None (pytest plugin) | `--target` | Side-load | None (small subset of tests may depend on side-loading the profile corresponding to --target to validate target's configuration) |
 | `invoke prompt` | `@config("ai")` | `--dproj` | Cloud Secrets | `GEMINI_API_KEY` |
 | `invoke build` | None | None | Not applicable | None (reads registry.project_id from config/app.yaml for docker push destination) |
 | `invoke deploy` | None | `--target` | Side-load | `PROJECT_ID`, `GCP_REGION`, `GCP_ZONE`, `STUB_AI`, `STUB_DB`, `JWT_SECRET_KEY`, `ALLOWED_USER_EMAILS` (reads images-denv from app.yaml for docker pull source) |
 | `invoke api-start` | `@config("local")` | None | Not applicable | `LOCAL`, `PORT`, `STUB_AI`, `STUB_DB` |
 | `invoke token` | `@config()` | `--profile` | Cloud Secrets | `JWT_SECRET_KEY`, `ALLOWED_USER_EMAILS` |
 | `invoke py --module="core.api"` | `@config()` | `--profile` | Cloud Secrets | Depends on specified profile |
+
+### **Decorator Usage Patterns**
+
+The configuration system uses three distinct patterns for environment loading:
+
+#### **Pattern 1: No Decorator + Pytest Plugin (Test Commands)**
+- **Commands**: `pytest tests/*`, `invoke test *`
+- **Why no decorator**: Each test path loads its own environment layer via pytest plugin
+- **Environment loading**: Handled by `pytest_runtest_setup()` hook in `pytest_plugin.py`
+- **Rationale**: Tests need different environments (unit, ai, api-test) based on file path
+
+#### **Pattern 2: Fixed Profile Decorator (Single-Purpose Tasks)**
+- **Commands**: `invoke prompt`, `invoke api-start`
+- **Decorator**: `@config("profile_name")`
+- **Why fixed profile**: Task has a single, well-defined purpose requiring specific environment
+- **Environment loading**: Handled by decorator before task execution
+
+#### **Pattern 3: Configurable Profile Decorator (Multi-Purpose Tasks)**
+- **Commands**: `invoke token`, `invoke py --module="core.api"`
+- **Decorator**: `@config()` (no default profile)
+- **Why configurable**: Task can work with multiple environments based on user needs
+- **Environment loading**: Handled by decorator using `--profile` parameter
+
+#### **Pattern 4: No Decorator + Manual Loading (Deployment Tasks)**
+- **Commands**: `invoke build`, `invoke deploy`
+- **Why no decorator**: Tasks load environment manually or don't need environment variables
+- **Environment loading**: Handled internally by task logic or not needed
+
+#### **Why `invoke test` is the Exception**
+
+The `invoke test` command is the **only config-sensitive task** that doesn't use a `@config()` decorator because:
+
+1. **Multiple Environment Layers**: Different test suites need different environments:
+   - `invoke test unit` → needs `unit` environment
+   - `invoke test ai` → needs `ai` environment  
+   - `invoke test api` → needs `api-test` environment
+
+2. **Path-Based Loading**: The pytest plugin automatically determines the correct environment based on test file paths, not command arguments
+
+3. **Consistency with Direct pytest**: `invoke test api` should behave identically to `pytest tests/api/`
+
+4. **Flexible Test Execution**: Users can run mixed test suites (`invoke test` with no suite) where different tests need different environments
+
+**Key Principle**: Tasks that work with a single, well-defined environment use `@config()`. Tasks that work with multiple environments or delegate environment loading to other systems (like pytest plugin) don't use decorators.
+
+#### **Output Differences: `pytest` vs `invoke test`**
+
+While both `pytest tests/api --target=local` and `invoke test api --target=local` use the same pytest plugin for environment loading, they have different output characteristics:
+
+**`pytest tests/api --target=local`**:
+- **Minimal output**: Shows only test results and pytest's standard output
+- **Environment loading**: Handled silently by pytest plugin
+- **Configuration display**: None (pytest focuses on test execution)
+
+**`invoke test api --target=local`**:
+- **Verbose output**: Shows configuration tables, runtime configuration, and setup information
+- **Environment loading**: Same pytest plugin, but with additional invoke-specific display logic
+- **Configuration display**: Shows testing configuration, environment variables, and secrets status
+
+**Why the difference**: The invoke task is designed to be more informative and user-friendly, providing visibility into the configuration being used for testing. This helps developers understand what environment is being loaded and troubleshoot configuration issues.
+
+**Consistency**: Both commands load the same environment and run the same tests - the difference is only in the display/output verbosity.
 
 ### **When Both --dproj and --target Are Needed**
 

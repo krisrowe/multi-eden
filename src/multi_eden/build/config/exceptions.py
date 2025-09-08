@@ -109,6 +109,37 @@ class GoogleSecretNotFoundException(ConfigException):
 """
 
 
+class RemoteApiTestingException(ConfigException):
+    """Raised when TEST_API_MODE=REMOTE but required TARGET_ variables are missing."""
+    def __init__(self, message: str, missing_vars: list = None, profile_name: str = None, **kwargs):
+        self.missing_vars = missing_vars or []
+        self.profile_name = profile_name
+        super().__init__(message, **kwargs)
+
+    def _generate_guidance(self):
+        command = self._get_current_command()
+        profile_info = f" (from profile '{self.profile_name}')" if self.profile_name else ""
+        return f"""
+❌ Remote API testing requires target configuration{profile_info}
+💡 Choose your testing approach:
+   
+   🏠 LOCAL TESTING (recommended for development):
+   • Run with --target=local to test against local server
+   
+   ☁️  CLOUD TESTING (requires cloud deployment):
+   • Run with --target=<dev|prod> to test against cloud deployment
+   
+   🔧 MANUAL CONFIGURATION:
+   • Set TEST_API_URL environment variable manually
+   
+   💾 IN-MEMORY TESTING (no external server):
+   • Use IN_MEMORY mode instead: TEST_API_MODE=IN_MEMORY
+   
+   ⏭️  SKIP API TESTS:
+   • Don't set TEST_API_MODE (tests will be skipped)
+"""
+
+
 # Legacy exceptions for backward compatibility (will be removed)
 class ProjectIdNotFoundException(ConfigException):
     """Legacy: Use ProjectIdRequiredException instead."""
