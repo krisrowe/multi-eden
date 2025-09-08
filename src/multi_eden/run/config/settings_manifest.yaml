@@ -57,7 +57,7 @@ settings:
     
   # API Configuration
   - name: "api-in-memory"
-    source: "env-var:TEST_API_IN_MEMORY"
+    source: "env-var:TEST_API_MODE"
     secret: false
     description: "Whether API runs in-memory for tests or as separate process"
     stub-indicator:

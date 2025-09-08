@@ -223,16 +223,7 @@ def api_client():
         # Remote API client - build URL based on environment
         api_url = _build_remote_api_url()
         if not api_url:
-            pytest.skip("❌ Remote API testing requires a target server. Options:\n"
-                       "  • Run with --target=local to test against local server\n"
-                       "  • Set TEST_API_URL environment variable manually\n"
-                       "  • Use IN_MEMORY mode instead of REMOTE mode")
-        
-        # Set JWT_SECRET_KEY from side-loaded TARGET_JWT_SECRET_KEY for remote API testing
-        target_jwt_secret = os.environ.get('TARGET_JWT_SECRET_KEY')
-        if target_jwt_secret:
-            os.environ['JWT_SECRET_KEY'] = target_jwt_secret
-        
+            pytest.skip("Cannot build TEST_API_URL for remote API testing. Check TARGET_LOCAL or TARGET_PROJECT_ID.")
         return RemoteAPITestClient(api_url, auth_required=True)
     
     else:

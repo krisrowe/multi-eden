@@ -25,14 +25,14 @@ def get_test_api_url():
     """Get the test API URL based on current environment configuration.
     
     Only returns a URL when:
-    - TEST_API_IN_MEMORY=false (API tests need external server)
+    - TEST_API_MODE=false (API tests need external server)
     - TEST_API_URL is not already set (don't override explicit values)
     
     Returns:
         list: List of (var_name, var_value, var_source) tuples
     """
     # Only inject if API tests need external server
-    if os.getenv('TEST_API_IN_MEMORY', '').lower() != 'false':
+    if os.getenv('TEST_API_MODE', '') != 'REMOTE':
         return []
     
     # Don't override explicit TEST_API_URL

@@ -161,36 +161,14 @@ def _load_test_config() -> Dict[str, Any]:
     return {}
 
 
-def _get_api_module_from_config() -> Optional[str]:
-    """
-    Get the API module path from app.yaml configuration.
-    
-    Returns the module path (e.g., "core.api:app") or None if not found.
-    """
-    try:
-        # Look for app.yaml in current working directory
-        app_yaml_path = Path.cwd() / 'config' / 'app.yaml'
-        if not app_yaml_path.exists():
-            app_yaml_path = Path.cwd() / 'app.yaml'
-        
-        if app_yaml_path.exists():
-            with open(app_yaml_path, 'r') as f:
-                config = yaml.safe_load(f)
-                return config.get('api', {}).get('module')
-        
-        return None
-    except Exception:
-        return None
-
-
 @pytest.fixture(scope="function")
 def api_client():
     """
     API client that chooses type based on TEST_API_MODE environment variable.
     
+    Only available when TEST_API_MODE is set:
     - TEST_API_MODE=IN_MEMORY: Returns InMemoryAPITestClient
     - TEST_API_MODE=REMOTE: Returns RemoteAPITestClient
-    - TEST_API_MODE not set: Returns None
     """
     from multi_eden.build.api_client.in_memory_client import InMemoryAPITestClient
     from multi_eden.build.api_client.remote_client import RemoteAPITestClient
@@ -205,15 +183,7 @@ def api_client():
         try:
             from fastapi.testclient import TestClient
             # Try to import the app module - this will be configured per app
-            # Read the API module from app.yaml configuration
-            app_module = _get_api_module_from_config()
-            if not app_module:
-                pytest.skip("API module not configured in app.yaml")
-            
-            import importlib
-            module_path, app_name = app_module.split(':')
-            module = importlib.import_module(module_path)
-            app = getattr(module, app_name)
+            from core.api import app
             fastapi_client = TestClient(app)
             return InMemoryAPITestClient(fastapi_client, auth_required=True)
         except ImportError as e:
@@ -223,16 +193,7 @@ def api_client():
         # Remote API client - build URL based on environment
         api_url = _build_remote_api_url()
         if not api_url:
-            pytest.skip("❌ Remote API testing requires a target server. Options:\n"
-                       "  • Run with --target=local to test against local server\n"
-                       "  • Set TEST_API_URL environment variable manually\n"
-                       "  • Use IN_MEMORY mode instead of REMOTE mode")
-        
-        # Set JWT_SECRET_KEY from side-loaded TARGET_JWT_SECRET_KEY for remote API testing
-        target_jwt_secret = os.environ.get('TARGET_JWT_SECRET_KEY')
-        if target_jwt_secret:
-            os.environ['JWT_SECRET_KEY'] = target_jwt_secret
-        
+            pytest.skip("Cannot build TEST_API_URL for remote API testing. Check TARGET_LOCAL or TARGET_PROJECT_ID.")
         return RemoteAPITestClient(api_url, auth_required=True)
     
     else:

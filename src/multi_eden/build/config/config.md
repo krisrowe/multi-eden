@@ -96,14 +96,14 @@ layers:
   app:
     env:
       APP_ID: "multi-eden-sdk"
-      CUSTOM_AUTH_ENABLED: true
+      CUSTOM_AUTH_ENABLED: IN_MEMORY
     
   # Cloud layer - shared cloud configuration
   cloud:
     inherits: "app"
     env:
-      STUB_AI: false
-      STUB_DB: false
+      STUB_AI: REMOTE
+      STUB_DB: REMOTE
       GEMINI_API_KEY: "secret:gemini-api-key"
       JWT_SECRET_KEY: "secret:jwt-secret-key"
       ALLOWED_USER_EMAILS: "secret:allowed-user-emails"
@@ -114,11 +114,11 @@ layers:
   unit:
     inherits: "app"
     env:
-      STUB_AI: true
-      STUB_DB: true
+      STUB_AI: IN_MEMORY
+      STUB_DB: IN_MEMORY
       JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"
-      TEST_API_IN_MEMORY: true
-      TEST_OMIT_INTEGRATION: true
+      TEST_API_MODE: IN_MEMORY
+      TEST_OMIT_INTEGRATION: IN_MEMORY
     
   # AI testing environment (minimal - only needs API key)
   ai:
@@ -130,16 +130,16 @@ layers:
   api-test:
     inherits: "app"
     env:
-      TEST_API_IN_MEMORY: false  # Indicates external API testing
+      TEST_API_MODE: REMOTE  # Indicates external API testing
     
   # Local development environment
   local:
     inherits: "app"
     env:
       PORT: 8000
-      STUB_AI: true
-      STUB_DB: true
-      LOCAL: true
+      STUB_AI: IN_MEMORY
+      STUB_DB: IN_MEMORY
+      LOCAL: IN_MEMORY
       GEMINI_API_KEY: "fake-local-gemini-key"
       JWT_SECRET_KEY: "local-jwt-secret"
       ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
@@ -224,12 +224,12 @@ api-test:
   inherits: "app"
   env:
     # Value-Provided Variables (inherited from app + local overrides)
-    TEST_API_IN_MEMORY: false  # Indicates external API testing
+    TEST_API_MODE: REMOTE  # Indicates external API testing
 ```
 
 **What this means:**
 - The `api-test` environment provides **minimal test configuration** for API testing
-- It sets `TEST_API_IN_MEMORY: false` to indicate external API testing (not in-memory)
+- It sets `TEST_API_MODE: REMOTE` to indicate external API testing (not in-memory)
 - Target API configuration comes from side-loaded `TARGET_*` variables via `--target`
 - The actual API URL and target settings are constructed by the pytest plugin from side-loaded configuration
 - If **secrets** cannot be resolved, `load_env` fails and tests are skipped with guidance
@@ -240,7 +240,7 @@ api-test:
 - **No STUB_* settings needed** - the target API has its own service configuration
 - **No JWT_SECRET_KEY needed** - the target API has its own auth configuration  
 - **Target settings come from side-loading** - `--target=dev` loads the dev profile with `TARGET_` prefix
-- **Only test behavior matters** - `TEST_API_IN_MEMORY: false` tells pytest to use external API client
+- **Only test behavior matters** - `TEST_API_MODE: REMOTE` tells pytest to use external API client
 
 #### **Load Failure Scenarios**
 
@@ -288,7 +288,7 @@ This declaration-based approach ensures that environment loading is predictable,
 
 | Command | Decorator | Command Line Arg | Arg Need | Required Environment Variables |
 |---------|-----------|------------------|----------|-------------------------------|
-| `pytest tests/unit/` | None (pytest plugin) | `--dproj` | None | `JWT_SECRET_KEY`, `STUB_AI`, `STUB_DB`, `TEST_API_IN_MEMORY`, `TEST_OMIT_INTEGRATION` |
+| `pytest tests/unit/` | None (pytest plugin) | `--dproj` | None | `JWT_SECRET_KEY`, `STUB_AI`, `STUB_DB`, `TEST_API_MODE`, `TEST_OMIT_INTEGRATION` |
 | `pytest tests/ai/` | None (pytest plugin) | `--dproj` | Cloud Secrets | `GEMINI_API_KEY` |
 | `pytest tests/db/` | None (pytest plugin) | `--dproj` | Cloud Secrets | `PROJECT_ID` |
 | `pytest tests/api/` | None (pytest plugin) | `--target` | Side-load | None (small subset of tests may depend on side-loading the profile corresponding to --target to validate target's configuration) |
@@ -493,18 +493,18 @@ pytest tests/api/ --target=dev
 
 **Configuration Flow**:
 1. **Main Profile**: Loads `api-test` profile with its inheritance chain:
-   - `app` layer → `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: true`
-   - `api-test` layer → `TEST_API_IN_MEMORY: false`
+   - `app` layer → `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: IN_MEMORY`
+   - `api-test` layer → `TEST_API_MODE: REMOTE`
 2. **Side-loaded Profile**: Loads `dev` profile with `TARGET_` prefix:
    - `TARGET_PROJECT_ID` from dev (resolved from `.projects` file)
-   - `TARGET_STUB_AI: false`, `TARGET_STUB_DB: false` from cloud layer
+   - `TARGET_STUB_AI: REMOTE`, `TARGET_STUB_DB: REMOTE` from cloud layer
    - `TARGET_GEMINI_API_KEY: "secret:gemini-api-key"` from cloud layer
    - `TARGET_JWT_SECRET_KEY: "secret:jwt-secret-key"` from cloud layer
 3. **Combined Result**: Main profile + side-loaded variables:
-   - `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: true` from app
-   - `TEST_API_IN_MEMORY: false` from api-test
+   - `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: IN_MEMORY` from app
+   - `TEST_API_MODE: REMOTE` from api-test
    - `TARGET_PROJECT_ID` from dev (for API client fixture)
-   - `TARGET_STUB_AI: false`, `TARGET_STUB_DB: false` from dev
+   - `TARGET_STUB_AI: REMOTE`, `TARGET_STUB_DB: REMOTE` from dev
    - `TARGET_GEMINI_API_KEY: "secret:gemini-api-key"` from dev
    - `TARGET_JWT_SECRET_KEY: "secret:jwt-secret-key"` from dev
 
@@ -518,19 +518,19 @@ pytest tests/db/ --dproj=dev
 
 **Configuration Flow**:
 1. **Main Profile**: Loads `db-test` profile with its inheritance chain:
-   - `app` layer → `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: true`
-   - `db-test` layer → `STUB_AI: true`, `STUB_DB: false`, `JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"`
+   - `app` layer → `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: IN_MEMORY`
+   - `db-test` layer → `STUB_AI: IN_MEMORY`, `STUB_DB: REMOTE`, `JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"`
 2. **Project ID Resolution**: `--dproj=dev` sets `PROJECT_ID` from `.projects.dev`
 3. **Combined Result**: Database testing configuration:
-   - `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: true`
-   - `STUB_AI: true`, `STUB_DB: false` (real database, stubbed AI)
+   - `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: IN_MEMORY`
+   - `STUB_AI: IN_MEMORY`, `STUB_DB: REMOTE` (real database, stubbed AI)
    - `JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"` (test auth)
    - `PROJECT_ID: "my-dev-project"` (for Firestore connection)
 
 **How Database Tests Work**:
 - **Direct Service Testing**: Tests call service classes directly, bypassing API layer
-- **Stubbed Services**: AI and other external services are stubbed (`STUB_AI: true`)
-- **Real Database**: Uses actual Firestore (`STUB_DB: false`)
+- **Stubbed Services**: AI and other external services are stubbed (`STUB_AI: IN_MEMORY`)
+- **Real Database**: Uses actual Firestore (`STUB_DB: REMOTE`)
 - **Test Authentication**: Uses mock JWT secret for auth testing
 - **Project ID Usage**: Google Firestore client uses `PROJECT_ID` to determine which Firestore instance to connect to
 
@@ -593,13 +593,13 @@ pytest tests/unit/
 
 **Configuration Flow**:
 1. **Main Profile**: Loads `unit` profile with its inheritance chain:
-   - `app` layer → `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: true`
-   - `unit` layer → `JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"`, `STUB_AI: true`, `STUB_DB: true`, `TEST_API_IN_MEMORY: true`, `TEST_OMIT_INTEGRATION: true`
+   - `app` layer → `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: IN_MEMORY`
+   - `unit` layer → `JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"`, `STUB_AI: IN_MEMORY`, `STUB_DB: IN_MEMORY`, `TEST_API_MODE: IN_MEMORY`, `TEST_OMIT_INTEGRATION: IN_MEMORY`
 2. **Result**: Complete unit test environment:
-   - `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: true` from app
+   - `APP_ID: "multi-eden-sdk"`, `CUSTOM_AUTH_ENABLED: IN_MEMORY` from app
    - `JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"` from unit
-   - `STUB_AI: true`, `STUB_DB: true` from unit
-   - `TEST_API_IN_MEMORY: true`, `TEST_OMIT_INTEGRATION: true` from unit
+   - `STUB_AI: IN_MEMORY`, `STUB_DB: IN_MEMORY` from unit
+   - `TEST_API_MODE: IN_MEMORY`, `TEST_OMIT_INTEGRATION: IN_MEMORY` from unit
 
 #### **API Client Fixture Logic with Side-loading**
 
@@ -608,7 +608,7 @@ The pytest plugin uses the combined configuration to determine API client behavi
 ```python
 def api_client_fixture():
     # Check if API tests should run in-memory
-    if os.environ.get('TEST_API_IN_MEMORY', 'false').lower() == 'true':
+    if os.environ.get('TEST_API_MODE', 'REMOTE').lower() == 'IN_MEMORY':
         return create_in_memory_client()
     
     # Check if we have the info needed for remote API testing
@@ -1167,13 +1167,13 @@ layers:
   app:
     env:
       APP_ID: "multi-eden-sdk"
-      CUSTOM_AUTH_ENABLED: true
+      CUSTOM_AUTH_ENABLED: IN_MEMORY
   
   cloud:
     inherits: "app"
     env:
-      STUB_AI: false
-      STUB_DB: false
+      STUB_AI: REMOTE
+      STUB_DB: REMOTE
       GEMINI_API_KEY: "secret:gemini-api-key"
       JWT_SECRET_KEY: "secret:jwt-secret-key"
       ALLOWED_USER_EMAILS: "secret:allowed-user-emails"
@@ -1192,14 +1192,14 @@ layers:
     default_dproj: "dev"  # Default project for database tests
     env:
       JWT_SECRET_KEY: "test-jwt-secret-multi-eden-sdk"
-      STUB_AI: true
-      STUB_DB: false
+      STUB_AI: IN_MEMORY
+      STUB_DB: REMOTE
   
   api-test:
     inherits: "app"
     default_target: "dev"  # Default target for API tests
     env:
-      TEST_API_IN_MEMORY: false
+      TEST_API_MODE: REMOTE
   
   # Deployment layers (no defaults needed)
   dev:

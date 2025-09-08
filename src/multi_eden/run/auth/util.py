@@ -96,6 +96,35 @@ def compute_system_info_hash(value: str) -> str:
 AUTH_SOURCE_CUSTOM = "auth.rowe360.com"
 AUTH_SOURCE_FIREBASE = "firebase"
 
+def detect_auth_method(issuer: str) -> str:
+    """
+    Detect authentication method based on token issuer.
+    
+    Args:
+        issuer: JWT token issuer string
+        
+    Returns:
+        str: Authentication method ("custom", "firebase", or "unknown")
+    """
+    if not issuer:
+        return "unknown"
+    
+    # Check for Firebase tokens
+    if issuer.startswith("https://securetoken.google.com/"):
+        return AUTH_SOURCE_FIREBASE
+    
+    # Check for custom tokens
+    try:
+        from multi_eden.run.auth import get_custom_auth_base_issuer
+        custom_issuer = get_custom_auth_base_issuer()
+        if issuer == custom_issuer:
+            return AUTH_SOURCE_CUSTOM
+    except Exception:
+        pass
+    
+    # Unknown issuer
+    return "unknown"
+
 # ============================================================================ #
 # Main Public Functions
 # ============================================================================ #

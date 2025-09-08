@@ -22,7 +22,7 @@ layers:
       ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"  # Mock value
       STUB_AI: true
       STUB_DB: true
-      TEST_API_IN_MEMORY: true
+      TEST_API_MODE: IN_MEMORY
       TEST_OMIT_INTEGRATION: true
   
   ai:
@@ -33,7 +33,7 @@ layers:
   api-test:
     inherits: "app"
     env:
-      TEST_API_IN_MEMORY: false  # Indicates external API testing
+      TEST_API_MODE: REMOTE  # Indicates external API testing
   
   db-test:
     inherits: "app"

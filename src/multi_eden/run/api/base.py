@@ -58,8 +58,8 @@ class BaseAPI:
         async def get_user(user_claims: dict = Depends(get_authenticated_user)):
             """Returns the authenticated user's information."""
             try:
-                from multi_eden.run.auth.util import AUTH_SOURCE_CUSTOM, AUTH_SOURCE_FIREBASE
-                auth_method = AUTH_SOURCE_CUSTOM if AUTH_SOURCE_CUSTOM in user_claims.get("iss", "") else AUTH_SOURCE_FIREBASE
+                from multi_eden.run.auth.util import detect_auth_method
+                auth_method = detect_auth_method(user_claims.get("iss", ""))
             except ImportError:
                 auth_method = "unknown"
             
