@@ -62,15 +62,45 @@ def validate_git_state():
 
 
 def check_build_config():
-    """Check if build configuration exists."""
+    """Check if build configuration exists and create .config-project if needed."""
     app_config_path = Path.cwd() / "config" / "app.yaml"
     project_config_path = Path.cwd() / ".config-project"
     
     if not app_config_path.exists():
         raise RuntimeError("❌ App config not found at config/app.yaml")
     
-    if not project_config_path.exists():
-        raise RuntimeError("❌ Project config not found at .config-project")
+    # Read app.yaml to get images-dproj
+    import yaml
+    with open(app_config_path) as f:
+        app_config = yaml.safe_load(f)
+        images_dproj = app_config.get('images-dproj')
+    
+    if not images_dproj:
+        raise RuntimeError("❌ images-dproj not found in config/app.yaml")
+    
+    # Get project ID from .projects file
+    projects_file = Path.cwd() / ".projects"
+    if not projects_file.exists():
+        raise RuntimeError("❌ .projects file not found")
+    
+    # Read .projects file to get project ID
+    with open(projects_file) as f:
+        projects_content = f.read().strip()
+        projects = {}
+        for line in projects_content.split('\n'):
+            if '=' in line:
+                key, value = line.split('=', 1)
+                projects[key.strip()] = value.strip()
+    
+    if images_dproj not in projects:
+        raise RuntimeError(f"❌ Project '{images_dproj}' not found in .projects file")
+    
+    project_id = projects[images_dproj]
+    
+    # Create .config-project file if it doesn't exist or has different content
+    if not project_config_path.exists() or project_config_path.read_text().strip() != project_id:
+        project_config_path.write_text(project_id)
+        print(f"📝 Created/updated .config-project with project ID: {project_id}")
     
     return app_config_path, project_config_path
 
