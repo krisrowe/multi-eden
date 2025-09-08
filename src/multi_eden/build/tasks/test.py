@@ -199,31 +199,26 @@ def run_pytest(suite, target, config_env, verbose, test_name=None, show_config=F
         from ...run.config import print_runtime_configuration
         print_runtime_configuration()
     
-    # Run pytest directly in the same process (not subprocess)
-    # This ensures environment variables set by load_env() are available
+    # Run pytest as a subprocess to ensure proper plugin loading
+    # This ensures the pytest plugin hooks work correctly
     logger.debug(f"🧪 Running {suite} tests...")
     
-    import pytest
-    
-    # Convert command to pytest args (skip the pytest executable)
-    pytest_args = cmd[1:] if cmd[0].endswith('pytest') else cmd[2:]  # Skip 'python -m pytest'
-    
-    # Debug: Show the actual command being executed
-    logger.debug(f"🔧 Full command: {' '.join(cmd)}")
-    logger.debug(f"🔧 Pytest args: {' '.join(pytest_args)}")
+    import subprocess
+    import sys
     
     try:
-        result_code = pytest.main(pytest_args)
+        # Run pytest as subprocess to ensure proper plugin loading
+        result = subprocess.run(cmd, cwd=Path.cwd())
         
-        if result_code == 0:
+        if result.returncode == 0:
             print("✅ All tests passed!")
         else:
-            print(f"❌ Tests failed with exit code {result_code}")
+            print(f"❌ Tests failed with exit code {result.returncode}")
         
-        return result_code
-    except SystemExit as e:
-        # pytest calls sys.exit(), catch it and return the code
-        return e.code if e.code is not None else 1
+        return result.returncode
+    except Exception as e:
+        print(f"❌ Failed to run tests: {e}")
+        return 1
 
 
 
