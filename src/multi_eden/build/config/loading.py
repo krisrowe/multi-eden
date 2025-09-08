@@ -80,7 +80,7 @@ def _load_environment_variables_staged(env_config: Dict[str, Any], layer_name: s
     """
     staged_vars = {}
     
-    for key, value in env_config.get('environment', {}).items():
+    for key, value in env_config.get('env', {}).items():
         env_var_name = key.upper()
         logger.debug(f"Processing variable '{env_var_name}' from layer '{layer_name}'")
         
@@ -99,7 +99,7 @@ def _load_environment_variables_staged(env_config: Dict[str, Any], layer_name: s
                 logger.debug(f"Variable '{env_var_name}' not set - loading new secret value from layer '{layer_name}'")
             else:
                 logger.debug(f"Variable '{env_var_name}' not set - loading new value '{processed_value}' from layer '{layer_name}'")
-            staged_vars[env_var_name] = (processed_value, 'environment')
+            staged_vars[env_var_name] = (processed_value, 'env')
             
         except (SecretUnavailableException, ProjectIdNotFoundException, ProjectsFileNotFoundException, 
                 NoKeyCachedForLocalSecretsException, LocalSecretNotFoundException, GoogleSecretNotFoundException, 
@@ -201,7 +201,7 @@ def _load_environment_variables(env_config: Dict[str, Any], layer_name: str) -> 
     """Load environment variables with secret error handling."""
     loaded_vars = {}
     
-    for key, value in env_config.get('environment', {}).items():
+    for key, value in env_config.get('env', {}).items():
         env_var_name = key.upper()
         
         # Check if already in os.environ (highest priority)
@@ -237,7 +237,7 @@ def _load_environment_variables(env_config: Dict[str, Any], layer_name: str) -> 
                 logger.debug(f"Variable '{env_var_name}' not set - loading new secret value from layer '{layer_name}'")
             else:
                 logger.debug(f"Variable '{env_var_name}' not set - loading new value '{processed_value}' from layer '{layer_name}'")
-            loaded_vars[env_var_name] = (processed_value, 'environment')
+            loaded_vars[env_var_name] = (processed_value, 'env')
         except SecretUnavailableException as e:
             logger.error(f"Failed to load secret for {env_var_name}: {e}")
             logger.debug(f"Variable '{env_var_name}' not set - skipping due to secret error")
@@ -271,18 +271,22 @@ def _load_and_merge_files(files: List[str]) -> Dict[str, Any]:
             with open(resolved_path, 'r') as f:
                 config = yaml.safe_load(f) or {}
             
-            if 'environments' in config:
-                # Merge environments (later files override earlier ones)
-                for env_name, env_config in config['environments'].items():
-                    if env_name in merged_environments:
+            if 'layers' in config:
+                # Merge layers (later files override earlier ones)
+                for layer_name, layer_config in config['layers'].items():
+                    if layer_name in merged_environments:
                         # Merge app overrides into SDK defaults
-                        if 'environment' in env_config:
-                            merged_environments[env_name]['environment'].update(env_config.get('environment', {}))
+                        if 'env' in layer_config:
+                            if 'env' not in merged_environments[layer_name]:
+                                merged_environments[layer_name]['env'] = {}
+                            merged_environments[layer_name]['env'].update(layer_config.get('env', {}))
+                        # Update other fields
+                        merged_environments[layer_name].update({k: v for k, v in layer_config.items() if k != 'env'})
                     else:
-                        # Add new environment
-                        merged_environments[env_name] = env_config
+                        # Add new layer
+                        merged_environments[layer_name] = layer_config
                 
-                logger.debug(f"Loaded {len(config['environments'])} environments from {resolved_path}")
+                logger.debug(f"Loaded {len(config['layers'])} layers from {resolved_path}")
         
         except Exception as e:
             logger.error(f"Failed to load config file {resolved_path}: {e}")
@@ -306,14 +310,14 @@ def _process_inheritance(top_layer: str, base_layer: Optional[str], merged_confi
             raise EnvironmentNotFoundError(f"Environment '{layer_name}' not found")
         
         env_config = merged_config['environments'][layer_name]
-        final_config = {'environment': {}}
+        final_config = {'env': {}}
         
         # Load base layer first if specified
         if base_layer and base_layer != layer_name:
             logger.debug(f"Loading base environment layer: '{base_layer}'")
             base_config = _load_layer(base_layer)
-            final_config['environment'].update(base_config.get('environment', {}))
-            logger.debug(f"Applied {len(base_config.get('environment', {}))} variables from base layer '{base_layer}'")
+            final_config['env'].update(base_config.get('env', {}))
+            logger.debug(f"Applied {len(base_config.get('env', {}))} variables from base layer '{base_layer}'")
         
         # Process inheritance
         if 'inherits' in env_config:
@@ -324,21 +328,21 @@ def _process_inheritance(top_layer: str, base_layer: Optional[str], merged_confi
             for parent_name in parent_names:
                 logger.debug(f"Layer '{layer_name}' inherits from '{parent_name}'")
                 parent_config = _load_layer(parent_name)
-                # Parent config has 'environment' key, current layer has 'env' key
-                parent_env = parent_config.get('environment', {})
-                final_config['environment'].update(parent_env)
+                # Parent config has 'env' key, current layer has 'env' key
+                parent_env = parent_config.get('env', {})
+                final_config['env'].update(parent_env)
                 logger.debug(f"Inherited {len(parent_env)} variables from '{parent_name}'")
         
         # Apply current layer's config (overrides inherited)
         current_env = env_config.get('env', {})
-        final_config['environment'].update(current_env)
+        final_config['env'].update(current_env)
         logger.debug(f"Applied {len(current_env)} variables from layer '{layer_name}'")
         
         return final_config
     
     return _load_layer(top_layer)
 
-def load_env(top_layer: str, base_layer: Optional[str] = None, files: Optional[List[str]] = None, force_reload: bool = False, fail_on_secret_error: bool = True) -> Dict[str, Tuple[str, str]]:
+def load_env(top_layer: str, base_layer: Optional[str] = None, files: Optional[List[str]] = None, force_reload: bool = False, fail_on_secret_error: bool = True, target_profile: Optional[str] = None) -> Dict[str, Tuple[str, str]]:
     """
     Load environment with atomic staging/clearing/applying phases.
     
@@ -349,6 +353,7 @@ def load_env(top_layer: str, base_layer: Optional[str] = None, files: Optional[L
         force_reload: Force reload even if same environment already loaded
         fail_on_secret_error: If True, raise SecretUnavailableException on any secret failure.
                              If False, skip failed secrets and continue with others.
+        target_profile: Optional target profile for side-loading with TARGET_ prefix
         
     Returns:
         Dictionary of loaded variables with source info: {var_name: (value, source)}
@@ -357,8 +362,8 @@ def load_env(top_layer: str, base_layer: Optional[str] = None, files: Optional[L
     if files is None:
         # Default file sources
         files = [
-            "environments.yaml",  # SDK environments
-            "{cwd}/config/environments.yaml"  # App environments
+            "config.yaml",  # SDK environments
+            "{cwd}/config/config.yaml"  # App environments
         ]
     
     # Check if this is the same load request as current
@@ -368,6 +373,13 @@ def load_env(top_layer: str, base_layer: Optional[str] = None, files: Optional[L
     
     # PHASE 1: STAGING - Load all new values without touching os.environ
     staged_vars = _stage_environment_variables(top_layer, base_layer, files, fail_on_secret_error)
+    
+    # PHASE 1.5: SIDE-LOADING - Load target profile with TARGET_ prefix if specified
+    if target_profile:
+        target_vars = _stage_environment_variables(target_profile, None, files, fail_on_secret_error)
+        # Add TARGET_ prefix to all target profile variables
+        for var_name, (value, source) in target_vars.items():
+            staged_vars[f"TARGET_{var_name}"] = (value, f"side-loaded from {source}")
     
     # PHASE 2: CLEARING - Remove old variables (only after staging succeeds)
     _clear_previous_variables()

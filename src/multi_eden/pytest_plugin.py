@@ -18,17 +18,23 @@ from multi_eden.build.config.exceptions import ConfigException
 def pytest_addoption(parser):
     """Add custom command line options for pytest."""
     parser.addoption(
-        "--env-name",
+        "--dproj",
         action="store",
         default=None,
-        help="Specify environment name for PROJECT_ID resolution"
+        help="Specify project alias for PROJECT_ID resolution (e.g., dev, prod)"
+    )
+    parser.addoption(
+        "--target",
+        action="store",
+        default=None,
+        help="Specify target profile for side-loading (e.g., dev, prod)"
     )
 
 
 def pytest_configure(config):
     """Configure pytest with environment-specific settings."""
-    # The pytest plugin doesn't handle --env-name parameter
-    # That should be handled by the app's own configuration system
+    # The pytest plugin handles --dproj and --target parameters
+    # for PROJECT_ID resolution and side-loading
     pass
 
 
@@ -45,21 +51,26 @@ def pytest_runtest_setup(item):
     env_layer = _get_environment_for_test_path(test_file_path)
     
     if env_layer:
-        # Handle --env-name parameter by setting PROJECT_ID before load_env
-        env_name = None
+        # Handle --dproj parameter by setting PROJECT_ID before load_env
+        dproj = None
+        target_profile = None
         if hasattr(item, 'config') and hasattr(item.config, 'getoption'):
             try:
-                env_name = item.config.getoption("--env-name")
-                if env_name:
+                dproj = item.config.getoption("--dproj")
+                target_profile = item.config.getoption("--target")
+                
+                if dproj:
                     # Set PROJECT_ID from .projects file
                     from multi_eden.build.config.loading import get_project_id_from_projects_file
-                    project_id = get_project_id_from_projects_file(env_name)
+                    project_id = get_project_id_from_projects_file(dproj)
                     os.environ['PROJECT_ID'] = project_id
 
             except:
                 pass
+        
         try:
-            load_env(top_layer=env_layer, fail_on_secret_error=True)
+            # Load environment with optional side-loading
+            load_env(top_layer=env_layer, fail_on_secret_error=True, target_profile=target_profile)
         except ConfigException as e:
             # Use the exception's built-in guidance
             pytest.skip(f"Test requires {env_layer} environment but configuration is missing: {e.guidance}")

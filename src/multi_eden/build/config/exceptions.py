@@ -42,7 +42,7 @@ class ProjectIdRequiredException(ConfigException):
 ❌ Project ID required for Google Cloud services
 💡 Resolve this in one of the following ways:
    1. Set PROJECT_ID environment variable: export PROJECT_ID=your-project
-   2. Or specify an environment: {command} --env-name=<your-environment>
+   2. Or specify an environment: {command} --dproj=<your-environment>
 """
 
 
@@ -57,8 +57,8 @@ class NoProjectIdForGoogleSecretsException(ConfigException):
 ❌ Secret '{self.secret_name}' unavailable because Google Secret Manager is used per app.yaml and no PROJECT_ID is available
 💡 You're configured for Google secrets manager in app.yaml, therefore, you must do one of the following:
    1. Set PROJECT_ID environment variable: export PROJECT_ID=your-project
-   2. Or specify an environment: {command} --env-name=<your-environment>
-      (Note: --env-name must be a name found in .projects file that is mapped to a Google Cloud project id
+   2. Or specify an environment: {command} --dproj=<your-environment>
+      (Note: --dproj must be a name found in .projects file that is mapped to a Google Cloud project id
        where {self.secret_name} is registered as the name of a secret in Secrets Manager)
 """
 
@@ -102,9 +102,9 @@ class GoogleSecretNotFoundException(ConfigException):
         return f"""
 ❌ Secret '{self.secret_name}' not found in Google Secret Manager
 💡 You're configured for Google secrets manager in app.yaml, therefore, you must do one of the following:
-   1. Set the secret: invoke secrets.set {self.secret_name} --env-name={env_name}
-   2. Or check if secret exists: invoke secrets.list --env-name={env_name}
-      (Note: --env-name must be a name found in .projects file that is mapped to a Google Cloud project id
+   1. Set the secret: invoke secrets.set {self.secret_name} --dproj={env_name}
+   2. Or check if secret exists: invoke secrets.list --dproj={env_name}
+      (Note: --dproj must be a name found in .projects file that is mapped to a Google Cloud project id
        where {self.secret_name} is registered as the name of a secret in Secrets Manager)
 """
 
