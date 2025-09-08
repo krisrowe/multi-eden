@@ -458,28 +458,8 @@ def _stage_environment_variables(params: LoadParams) -> Dict[str, StagedVariable
         
         validators.extend(layer_validators)
     
-    # PHASE 1.5: COMPATIBILITY - Generate TARGET_ prefixed variables for base layer
-    # This ensures existing validators and API client code continue to work
-    if params.base_layer:
-        logger.debug(f"STAGING: Generating TARGET_ prefixed variables for base layer '{params.base_layer}'")
-        base_layer_names = _build_prioritized_layer_list(params.base_layer, merged_config, None)
-        for layer_name in reversed(base_layer_names):
-            layer_vars, _ = _load_layer_variables(layer_name, merged_config, params.fail_on_secret_error)
-            
-            # Add TARGET_ prefix to all base layer variables
-            for var_name, staged_var in layer_vars.items():
-                staged_vars[f"TARGET_{var_name}"] = StagedVariable(
-                    name=f"TARGET_{var_name}",
-                    value=staged_var.value,
-                    source=f"base layer from {staged_var.source}",
-                    is_override=False,
-                    layer_name=staged_var.layer_name,
-                    is_side_loaded=True
-                )
-                logger.debug(f"STAGING: Generated TARGET_{var_name} = {staged_var.value} (from base layer {layer_name})")
-    
-    # PHASE 1.6: VALIDATION - Run collected validators
-    _run_validators(staged_vars, validators, params.top_layer)
+    # PHASE 1.5: VALIDATION - Run collected validators
+    _run_validators(staged_vars, validators, params.top_layer, params.base_layer)
     
     logger.debug(f"STAGING: Successfully staged {len(staged_vars)} variables")
     return staged_vars
@@ -760,13 +740,14 @@ def _clear_layer_processing_stack():
 
 
 def _run_validators(staged_vars: Dict[str, StagedVariable], 
-                   validators: List[Any], top_layer: str) -> None:
+                   validators: List[Any], top_layer: str, target_profile: Optional[str] = None) -> None:
     """Run all collected validators on the staged variables.
     
     Args:
         staged_vars: Dictionary of staged environment variables with source info
         validators: List of validator instances to run
         top_layer: The primary environment layer being loaded
+        target_profile: Optional target profile for base layer
         
     Raises:
         ConfigException: If any validator fails validation
@@ -776,8 +757,8 @@ def _run_validators(staged_vars: Dict[str, StagedVariable],
     
     for validator in unique_validators:
         try:
-            if validator.should_validate(staged_vars, top_layer):
-                validator.validate(staged_vars, top_layer)
+            if validator.should_validate(staged_vars, top_layer, target_profile):
+                validator.validate(staged_vars, top_layer, target_profile)
         except Exception as e:
             # Re-raise ConfigException as-is, wrap others
             from multi_eden.build.config.exceptions import ConfigException

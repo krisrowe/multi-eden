@@ -31,55 +31,42 @@ class RemoteApiTestingValidator(BaseValidator):
         Args:
             staged_vars: Dictionary of staged environment variables with metadata
             top_layer: The primary environment layer being loaded
-            target_profile: Optional target profile for side-loading
+            target_profile: Optional target profile for base layer
             
         Raises:
             RemoteApiTestingException: If TEST_API_MODE=REMOTE but required vars missing
         """
-        # Check for required variables for remote API testing
-        missing_vars = []
-        
         # Check for explicit TEST_API_URL first
         if 'TEST_API_URL' in staged_vars:
             return  # Explicit URL provided, no further validation needed
         
         # Check for local testing configuration
-        target_local_var = staged_vars.get('TARGET_LOCAL')
-        target_local = target_local_var.value if target_local_var else None
-        if target_local and target_local.lower() == 'true':
+        local_var = staged_vars.get('LOCAL')
+        local_value = local_var.value if local_var else None
+        if local_value and local_value.lower() == 'true':
             return  # Local testing configured, no further validation needed
         
         # Check for cloud testing configuration
-        target_project_id_var = staged_vars.get('TARGET_PROJECT_ID')
-        target_project_id = target_project_id_var.value if target_project_id_var else None
-        target_app_id_var = staged_vars.get('TARGET_APP_ID')
-        target_app_id = target_app_id_var.value if target_app_id_var else None
-        
-        if not target_project_id:
-            missing_vars.append('TARGET_PROJECT_ID')
-        if not target_app_id:
-            missing_vars.append('TARGET_APP_ID')
-        
-        # If we have cloud config, we're good
-        if target_project_id and target_app_id:
-            return
-        
-        # Check fallback to non-side-loaded variables
         project_id_var = staged_vars.get('PROJECT_ID')
         project_id = project_id_var.value if project_id_var else None
         app_id_var = staged_vars.get('APP_ID')
         app_id = app_id_var.value if app_id_var else None
         
         if project_id and app_id:
-            return  # Fallback config available
+            return  # Cloud config available
         
         # If we get here, we're missing required configuration
-        if missing_vars:
-            # Determine which profile triggered this validation
-            profile_name = target_profile or top_layer
-            raise RemoteApiTestingException(
-                f"Remote API testing requires target configuration but missing: {', '.join(missing_vars)}",
-                missing_vars=missing_vars,
-                profile_name=profile_name
-            )
+        missing_vars = []
+        if not project_id:
+            missing_vars.append('PROJECT_ID')
+        if not app_id:
+            missing_vars.append('APP_ID')
+        
+        # Determine which profile triggered this validation
+        profile_name = target_profile or top_layer
+        raise RemoteApiTestingException(
+            f"Remote API testing requires target configuration (from profile '{profile_name}')",
+            missing_vars=missing_vars,
+            profile_name=profile_name
+        )
 

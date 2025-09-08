@@ -219,7 +219,7 @@ def api_client():
             import importlib
             module_path, app_name = app_module.split(':')
             module = importlib.import_module(module_path)
-            app = getattr(module, app_namxe)
+            app = getattr(module, app_name)
             fastapi_client = TestClient(app)
             return InMemoryAPITestClient(fastapi_client)
         except ImportError as e:
@@ -228,12 +228,14 @@ def api_client():
     elif test_api_mode == 'REMOTE':
         # Remote API client - build URL based on environment
         api_url = _build_remote_api_url()
+        print(f"DEBUG: test_api_mode=REMOTE, api_url={api_url}")
         if not api_url:
             pytest.skip("❌ Remote API testing requires a target server. Options:\n"
                        "  • Run with --target=local to test against local server\n"
                        "  • Set TEST_API_URL environment variable manually\n"
                        "  • Use IN_MEMORY mode instead of REMOTE mode")
         
+        print(f"DEBUG: Creating RemoteAPITestClient with URL: {api_url}")
         return RemoteAPITestClient(api_url, auth_required=True)
     
     else:
@@ -251,11 +253,14 @@ def _build_remote_api_url() -> Optional[str]:
         return os.environ['TEST_API_URL']
     
     # Check if we're targeting local
-    target_local = os.environ.get('TARGET_LOCAL', '').lower()
-    if target_local == 'true':
+    local = os.environ.get('LOCAL', '').lower()
+    print(f"DEBUG: LOCAL={local}")
+    if local == 'true':
         # Use localhost with default port
         port = os.environ.get('PORT', '8000')
-        return f"http://localhost:{port}"
+        url = f"http://localhost:{port}"
+        print(f"DEBUG: Built URL: {url}")
+        return url
     
     # Check if we have a target project ID for remote testing
     target_project_id = os.environ.get('TARGET_PROJECT_ID')

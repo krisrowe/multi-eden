@@ -19,7 +19,9 @@ class ConfigException(Exception):
     def _get_current_command(self):
         """Get the current command being executed."""
         if len(sys.argv) > 0:
-            return ' '.join(sys.argv)
+            # Extract just the command name, not the full path
+            command = sys.argv[0].split('/')[-1]  # Get just the filename, not full path
+            return command
         return "unknown command"
 
     def _generate_guidance(self):
@@ -106,37 +108,6 @@ class GoogleSecretNotFoundException(ConfigException):
    2. Or check if secret exists: invoke secrets.list --dproj={env_name}
       (Note: --dproj must be a name found in .projects file that is mapped to a Google Cloud project id
        where {self.secret_name} is registered as the name of a secret in Secrets Manager)
-"""
-
-
-class RemoteApiTestingException(ConfigException):
-    """Raised when TEST_API_MODE=REMOTE but required TARGET_ variables are missing."""
-    def __init__(self, message: str, missing_vars: list = None, profile_name: str = None, **kwargs):
-        self.missing_vars = missing_vars or []
-        self.profile_name = profile_name
-        super().__init__(message, **kwargs)
-
-    def _generate_guidance(self):
-        command = self._get_current_command()
-        profile_info = f" (from profile '{self.profile_name}')" if self.profile_name else ""
-        return f"""
-❌ Remote API testing requires target configuration{profile_info}
-💡 Choose your testing approach:
-   
-   🏠 LOCAL TESTING (recommended for development):
-   • Run with --target=local to test against local server
-   
-   ☁️  CLOUD TESTING (requires cloud deployment):
-   • Run with --target=<dev|prod> to test against cloud deployment
-   
-   🔧 MANUAL CONFIGURATION:
-   • Set TEST_API_URL environment variable manually
-   
-   💾 IN-MEMORY TESTING (no external server):
-   • Use IN_MEMORY mode instead: TEST_API_MODE=IN_MEMORY
-   
-   ⏭️  SKIP API TESTS:
-   • Don't set TEST_API_MODE (tests will be skipped)
 """
 
 
