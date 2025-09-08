@@ -56,6 +56,11 @@ layers:
       JWT_SECRET_KEY: "local-jwt-secret"  # Mock value
       ALLOWED_USER_EMAILS: "test-user@static.multi-eden-sdk.app"
   
+  local-docker:
+    inherits: "local"
+    env:
+      PORT: 8001
+  
   dev:
     inherits: "cloud"
     env:

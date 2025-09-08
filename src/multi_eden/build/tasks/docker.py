@@ -134,12 +134,12 @@ def docker_run(ctx, profile=None, port=8001, container_name = "multi-eden-app"):
         
 
         
-        # Add ALL runtime settings environment variables (from settings_manifest.yaml)
+        # Add ALL runtime settings environment variables
         runtime_env_vars = [
-            # Secrets (from settings_manifest.yaml)
-            "JWT_SECRET_KEY", "ALLOWED_USER_EMAILS", "GEMINI_API_KEY",
-            # Legacy (for backward compatibility)
-            "CUSTOM_AUTH_SALT"
+            # Core app settings
+            "APP_ID", "CUSTOM_AUTH_ENABLED", "LOCAL", "PORT", "STUB_AI", "STUB_DB",
+            # Secrets
+            "JWT_SECRET_KEY", "ALLOWED_USER_EMAILS", "GEMINI_API_KEY"
         ]
         for env_var in runtime_env_vars:
             if env_var in os.environ:
