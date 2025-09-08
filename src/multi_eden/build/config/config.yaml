@@ -35,7 +35,7 @@ layers:
     env:
       TEST_API_MODE: REMOTE  # Indicates external API testing
     validators:
-      - "RemoteApiTestingValidator"
+      - RemoteApiTestingValidator
   
   db-test:
     inherits: "app"

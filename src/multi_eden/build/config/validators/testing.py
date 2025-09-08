@@ -5,7 +5,7 @@ This module provides validators for testing-specific configuration requirements,
 such as remote API testing validation.
 """
 
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Optional
 from .base import BaseValidator
 from multi_eden.build.config.exceptions import RemoteApiTestingException
 
@@ -17,18 +17,19 @@ class RemoteApiTestingValidator(BaseValidator):
     target configuration variables are available to build the API URL.
     """
     
-    def should_validate(self, staged_vars: Dict[str, Tuple[str, str]], 
+    def should_validate(self, staged_vars: Dict[str, Any], 
                        top_layer: str, target_profile: Optional[str] = None) -> bool:
         """Only validate if TEST_API_MODE=REMOTE is set."""
-        test_api_mode = staged_vars.get('TEST_API_MODE', [None])[0] if 'TEST_API_MODE' in staged_vars else None
+        test_api_mode_var = staged_vars.get('TEST_API_MODE')
+        test_api_mode = test_api_mode_var.value if test_api_mode_var else None
         return test_api_mode == 'REMOTE'
     
-    def validate(self, staged_vars: Dict[str, Tuple[str, str]], 
+    def validate(self, staged_vars: Dict[str, Any], 
                 top_layer: str, target_profile: Optional[str] = None) -> None:
         """Validate that remote API testing has required configuration.
         
         Args:
-            staged_vars: Dictionary of staged environment variables with source info
+            staged_vars: Dictionary of staged environment variables with metadata
             top_layer: The primary environment layer being loaded
             target_profile: Optional target profile for side-loading
             
@@ -43,13 +44,16 @@ class RemoteApiTestingValidator(BaseValidator):
             return  # Explicit URL provided, no further validation needed
         
         # Check for local testing configuration
-        target_local = staged_vars.get('TARGET_LOCAL', [None])[0] if 'TARGET_LOCAL' in staged_vars else None
+        target_local_var = staged_vars.get('TARGET_LOCAL')
+        target_local = target_local_var.value if target_local_var else None
         if target_local and target_local.lower() == 'true':
             return  # Local testing configured, no further validation needed
         
         # Check for cloud testing configuration
-        target_project_id = staged_vars.get('TARGET_PROJECT_ID', [None])[0] if 'TARGET_PROJECT_ID' in staged_vars else None
-        target_app_id = staged_vars.get('TARGET_APP_ID', [None])[0] if 'TARGET_APP_ID' in staged_vars else None
+        target_project_id_var = staged_vars.get('TARGET_PROJECT_ID')
+        target_project_id = target_project_id_var.value if target_project_id_var else None
+        target_app_id_var = staged_vars.get('TARGET_APP_ID')
+        target_app_id = target_app_id_var.value if target_app_id_var else None
         
         if not target_project_id:
             missing_vars.append('TARGET_PROJECT_ID')
@@ -61,8 +65,10 @@ class RemoteApiTestingValidator(BaseValidator):
             return
         
         # Check fallback to non-side-loaded variables
-        project_id = staged_vars.get('PROJECT_ID', [None])[0] if 'PROJECT_ID' in staged_vars else None
-        app_id = staged_vars.get('APP_ID', [None])[0] if 'APP_ID' in staged_vars else None
+        project_id_var = staged_vars.get('PROJECT_ID')
+        project_id = project_id_var.value if project_id_var else None
+        app_id_var = staged_vars.get('APP_ID')
+        app_id = app_id_var.value if app_id_var else None
         
         if project_id and app_id:
             return  # Fallback config available

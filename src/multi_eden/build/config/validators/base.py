@@ -2,12 +2,12 @@
 Base validator class for configuration validation.
 
 This module provides the abstract base class that all configuration validators
-must implement. Validators are called during the load_env process to validate
-staged variables before they are applied to the environment.
+must inherit from. Validators are used to validate staged environment variables
+before they are applied to the environment.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Optional
 
 
 class BaseValidator(ABC):
@@ -27,12 +27,12 @@ class BaseValidator(ABC):
         self.name = name or self.__class__.__name__
     
     @abstractmethod
-    def validate(self, staged_vars: Dict[str, Tuple[str, str]], 
+    def validate(self, staged_vars: Dict[str, Any], 
                 top_layer: str, target_profile: Optional[str] = None) -> None:
         """Validate staged variables.
         
         Args:
-            staged_vars: Dictionary of staged environment variables with source info
+            staged_vars: Dictionary of staged environment variables with metadata
             top_layer: The primary environment layer being loaded
             target_profile: Optional target profile for side-loading
             
@@ -41,19 +41,19 @@ class BaseValidator(ABC):
         """
         pass
     
-    def should_validate(self, staged_vars: Dict[str, Tuple[str, str]], 
+    def should_validate(self, staged_vars: Dict[str, Any], 
                        top_layer: str, target_profile: Optional[str] = None) -> bool:
-        """Determine if this validator should run for the given configuration.
+        """Determine if this validator should run.
         
-        Override this method to make validation conditional. By default, all validators run.
+        Override this method to add conditions for when the validator should run.
+        By default, validators always run.
         
         Args:
-            staged_vars: Dictionary of staged environment variables with source info
+            staged_vars: Dictionary of staged environment variables with metadata
             top_layer: The primary environment layer being loaded
             target_profile: Optional target profile for side-loading
             
         Returns:
-            bool: True if validation should run, False otherwise
+            True if validator should run, False otherwise
         """
         return True
-
