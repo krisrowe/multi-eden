@@ -14,6 +14,7 @@ from multi_eden.build.config.exceptions import (
     GoogleSecretNotFoundException
 )
 from multi_eden.build.config.loading import load_env
+from multi_eden.build.config.models import LoadParams
 
 
 def requires_env_stack(environment: str = None):
@@ -34,7 +35,8 @@ def requires_env_stack(environment: str = None):
                     sys.exit(1)
             
             try:
-                load_env(top_layer=env_to_load, fail_on_secret_error=True)
+                params = LoadParams(top_layer=env_to_load, fail_on_secret_error=True)
+                load_env(params)
             except ConfigException as e:
                 print(e.guidance, file=sys.stderr)
                 sys.exit(1)
