@@ -62,9 +62,8 @@ def validate_git_state():
 
 
 def check_build_config():
-    """Check if build configuration exists and create .config-project if needed."""
+    """Check if build configuration exists and get project ID from app.yaml + .projects."""
     app_config_path = Path.cwd() / "config" / "app.yaml"
-    project_config_path = Path.cwd() / ".config-project"
     
     if not app_config_path.exists():
         raise RuntimeError("❌ App config not found at config/app.yaml")
@@ -97,17 +96,12 @@ def check_build_config():
     
     project_id = projects[images_dproj]
     
-    # Create .config-project file if it doesn't exist or has different content
-    if not project_config_path.exists() or project_config_path.read_text().strip() != project_id:
-        project_config_path.write_text(project_id)
-        print(f"📝 Created/updated .config-project with project ID: {project_id}")
-    
-    return app_config_path, project_config_path
+    return app_config_path, project_id
 
 
 def get_build_config():
     """Read build configuration from app.yaml and environments.yaml."""
-    app_config_path, project_config_path = check_build_config()
+    app_config_path, project_id = check_build_config()
     
     # Read app configuration from config/app.yaml
     import yaml
@@ -120,17 +114,8 @@ def get_build_config():
         raise RuntimeError("❌ app id not found in config/app.yaml")
     
     # Get registry project ID and image tag from app.yaml
-    registry_project_id = registry_config.get('project_id')
+    registry_project_id = registry_config.get('project_id', project_id)  # Use project_id as default
     image_tag = registry_config.get('tag', app_id)  # Default to app_id
-    
-    if not registry_project_id:
-        # Fallback to .config-project for backward compatibility
-        if project_config_path.exists():
-            with open(project_config_path) as f:
-                registry_project_id = f.read().strip()
-        
-        if not registry_project_id:
-            raise RuntimeError("❌ registry.project_id not found in config/app.yaml")
     
     return registry_project_id, image_tag
 
