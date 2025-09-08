@@ -23,7 +23,7 @@ def get_static_test_user_email() -> str:
     """Get the static test user email address."""
     return f"test-user@static.{get_setting('app-id')}.app"
 
-def get_static_test_user_token():
+def get_static_test_user_token(custom_auth_allowed=None):
     """
     Gets a token for the single, known static test user.
 
@@ -33,15 +33,24 @@ def get_static_test_user_token():
     
     For Firebase tokens, uses a module-level cache to avoid redundant API calls.
     
+    Args:
+        custom_auth_allowed: Optional bool indicating whether custom auth is allowed.
+                           If None, defaults to the result of is_custom_auth_enabled().
+                           This allows callers to override the default behavior without
+                           triggering the settings lookup when not needed.
+    
     Returns:
         dict: JSON structure with meta (source, hash) and token
     """
     global _firebase_token_cache
     
-    # Import config.mode here to avoid circular imports
-    from multi_eden.run.config.providers import is_custom_auth_enabled
+    # Only call is_custom_auth_enabled() if custom_auth_allowed is not provided
+    if custom_auth_allowed is None:
+        # Import config.mode here to avoid circular imports
+        from multi_eden.run.config.providers import is_custom_auth_enabled
+        custom_auth_allowed = is_custom_auth_enabled()
     
-    if is_custom_auth_enabled():
+    if custom_auth_allowed:
         # Custom tokens are generated locally (fast) - no need to cache
         token = gen_token(get_static_test_user_email())
         source = AUTH_SOURCE_CUSTOM
