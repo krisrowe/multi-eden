@@ -75,7 +75,7 @@ class LoadedVariable(BaseModel):
     value: str
     source: str  # The layer name where this variable was defined
     is_override: bool = False  # True if this variable overrode a value from a lower layer
-    original_value: Optional[str] = None  # The original value before override (if applicable)
+    value_history: List[str] = []  # History of values through the inheritance chain
 
 
 # Track last successful load: {"params": {...}, "loaded_vars": {...}, "integrity_hash": "..."}
@@ -532,7 +532,7 @@ def load_env(params: LoadParams) -> List[LoadedVariable]:
             value=staged_var.value,
             source=staged_var.source,
             is_override=staged_var.is_override,
-            original_value=staged_var.original_value
+            value_history=[]  # TODO: Implement value history tracking in staging
         )
         loaded_vars.append(loaded_var)
     
