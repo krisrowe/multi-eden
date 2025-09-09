@@ -2,11 +2,14 @@
 New environment loading system with inheritance, caching, and clean state management.
 """
 import os
+import sys
 import logging
+import hashlib
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from .models import LoadParams, StagedVariable, StagingResult
 import yaml
+from pydantic import BaseModel
 
 from .exceptions import (
     ConfigException,
@@ -15,6 +18,7 @@ from .exceptions import (
     NoKeyCachedForLocalSecretsException,
     LocalSecretNotFoundException,
     GoogleSecretNotFoundException,
+    EnvironmentCorruptionError,
     # Legacy exceptions for backward compatibility
     EnvironmentLoadError,
     EnvironmentNotFoundError,
@@ -27,20 +31,108 @@ from .secrets import get_secret
 logger = logging.getLogger(__name__)
 
 
+def _calculate_integrity_hash(staged_vars: Dict[str, StagedVariable]) -> str:
+    """
+    Calculate integrity hash of all os.environ values that were written in Phase 3 (applying).
+    
+    Args:
+        staged_vars: Dictionary of staged variables that were applied to os.environ
+        
+    Returns:
+        MD5 hash string of the environment variable values
+    """
+    # Create a sorted list of key=value pairs for consistent hashing
+    env_pairs = []
+    for var_name, staged_var in staged_vars.items():
+        env_pairs.append(f"{var_name}={staged_var.value}")
+    
+    # Sort to ensure consistent hash regardless of order
+    env_pairs.sort()
+    
+    # Create hash of the environment variable values
+    env_string = "\n".join(env_pairs)
+    return hashlib.md5(env_string.encode()).hexdigest()
 
-# Track last successful load: {"params": {...}, "loaded_vars": {...}}
+
+def _verify_integrity_hash(cached_integrity_hash: str, staged_vars: Dict[str, StagedVariable]) -> bool:
+    """
+    Verify that current os.environ values match the cached integrity hash.
+    
+    Args:
+        cached_integrity_hash: The integrity hash stored in cache
+        staged_vars: Dictionary of staged variables that should be in os.environ
+        
+    Returns:
+        True if integrity hash matches, False otherwise
+    """
+    current_hash = _calculate_integrity_hash(staged_vars)
+    return current_hash == cached_integrity_hash
+
+
+class LoadedVariable(BaseModel):
+    """Pydantic model for a loaded environment variable with metadata."""
+    name: str
+    value: str
+    source: str  # The layer name where this variable was defined
+    is_override: bool = False  # True if this variable overrode a value from a lower layer
+    original_value: Optional[str] = None  # The original value before override (if applicable)
+
+
+# Track last successful load: {"params": {...}, "loaded_vars": {...}, "integrity_hash": "..."}
 _last_load = None
 
 
 def _is_same_load(params: LoadParams) -> bool:
-    """Check if this is the same load request as the current one using hash comparison."""
+    """Check if this is the same load request as the current one using hash comparison and integrity verification."""
     if _last_load is None:
         return False
     
     # Compare using hash keys for robust comparison
     current_key = params.get_cache_key()
     last_key = _last_load.get("cache_key")
-    return current_key == last_key
+    cache_key_matches = current_key == last_key
+    
+    if cache_key_matches:
+        # If cache key matches, verify integrity hash
+        cached_integrity_hash = _last_load.get("integrity_hash")
+        if cached_integrity_hash:
+            # We need to stage the variables to verify integrity
+            # This is a bit of a chicken-and-egg problem, so we'll do a lightweight check
+            # by comparing the expected variables from the cache manifest
+            cached_loaded_vars = _last_load.get("loaded_vars", {})
+            
+            # Create staged variables from cached data for integrity check
+            staged_vars_for_check = {}
+            for var_name, var_value in cached_loaded_vars.items():
+                staged_vars_for_check[var_name] = StagedVariable(
+                    name=var_name,
+                    value=var_value,
+                    source="cached",
+                    is_override=False,
+                    layer_name="cached",
+                    is_side_loaded=False
+                )
+            
+            integrity_matches = _verify_integrity_hash(cached_integrity_hash, staged_vars_for_check)
+            
+            if not integrity_matches:
+                logger.warning(f"Cache key matches but integrity hash mismatch detected. Cache key: {last_key}, Cached integrity: {cached_integrity_hash}")
+                # Find which variables are corrupted
+                corrupted_vars = []
+                for var_name, staged_var in staged_vars_for_check.items():
+                    if var_name in os.environ:
+                        current_value = os.environ[var_name]
+                        if current_value != staged_var.value:
+                            corrupted_vars.append(var_name)
+                
+                raise EnvironmentCorruptionError(
+                    f"Environment variables have been corrupted since last load. Cache key: {last_key}",
+                    corrupted_vars=corrupted_vars
+                )
+        
+        return True
+    
+    return False
 
 
 
@@ -379,7 +471,7 @@ def _process_inheritance(top_layer: str, merged_config: Dict[str, Any]) -> Tuple
     result_config = _load_layer(top_layer)
     return result_config, validator_names
 
-def load_env(params: LoadParams) -> Dict[str, StagedVariable]:
+def load_env(params: LoadParams) -> List[LoadedVariable]:
     """
     Load environment with atomic staging/clearing/applying phases.
     
@@ -402,8 +494,20 @@ def load_env(params: LoadParams) -> Dict[str, StagedVariable]:
     
     # Check if this is the same load request as current
     if not params.force_reload and _is_same_load(params):
-        logger.debug(f"Skipping reload - same environment already loaded: '{params.top_layer}'")
+        cache_key = params.get_cache_key()
+        cached_key = _last_load.get('cache_key') if _last_load else 'None'
+        cached_integrity = _last_load.get('integrity_hash') if _last_load else 'None'
+        
+        print(f"DEBUG: Cache hit! Current cache: {cached_key}, Request cache: {cache_key}", file=sys.stderr)
+        print(f"DEBUG: Cached integrity hash: {cached_integrity}", file=sys.stderr)
+        
+        _display_load_params_table(params, cache_key, "SKIPPING LOAD - SAME ENVIRONMENT ALREADY LOADED")
+        logger.debug(f"Skipping reload - same environment already loaded: '{params.top_layer}' with cache_key={cache_key}, integrity_hash={cached_integrity}")
         return {}  # Return empty dict since nothing changed
+    
+    # Display load parameters before processing
+    cache_key = params.get_cache_key()
+    _display_load_params_table(params, cache_key, "LOADING ENVIRONMENT")
     
     # PHASE 1: STAGING - Load all new values without touching os.environ
     staged_vars = _stage_environment_variables(params)
@@ -411,14 +515,28 @@ def load_env(params: LoadParams) -> Dict[str, StagedVariable]:
     # PHASE 2: CLEARING - Remove old variables (only after staging succeeds)
     _clear_previous_variables()
     
-    # PHASE 3: APPLYING - Apply all new variables atomically
+    # PHASE 3: APPLYING - Apply all new variables atomically to os.environ
     _apply_staged_variables(staged_vars)
+    
+    # PHASE 4: CACHING - Update cache only after os.environ update succeeds
     _commit_load_state(params, staged_vars)
     
     # Display environment variables table
-    _display_environment_variables_table(staged_vars)
+    _display_environment_variables_table(staged_vars, params.top_layer)
     
-    return staged_vars
+    # Convert staged_vars to LoadedVariable objects
+    loaded_vars = []
+    for var_name, staged_var in staged_vars.items():
+        loaded_var = LoadedVariable(
+            name=var_name,
+            value=staged_var.value,
+            source=staged_var.source,
+            is_override=staged_var.is_override,
+            original_value=staged_var.original_value
+        )
+        loaded_vars.append(loaded_var)
+    
+    return loaded_vars
 
 
 def _stage_environment_variables(params: LoadParams) -> Dict[str, StagedVariable]:
@@ -610,19 +728,27 @@ def _apply_staged_variables(staged_vars: Dict[str, StagedVariable]) -> None:
 
 def _commit_load_state(params: LoadParams, staged_vars: Dict[str, StagedVariable]) -> None:
     """
-    PHASE 3: COMMIT - Update global _last_load tracker with successful load.
+    PHASE 4: CACHING - Update global _last_load tracker with successful load and integrity hash.
     
     Args:
         params: Load parameters used for this load
         staged_vars: Variables that were loaded with metadata
     """
+    import sys
     global _last_load
+    
+    # Calculate integrity hash of all os.environ values that were written in Phase 3
+    integrity_hash = _calculate_integrity_hash(staged_vars)
+    
     _last_load = {
         "cache_key": params.get_cache_key(),
         "params": params.model_dump(),
-        "loaded_vars": {var_name: staged_var.value for var_name, staged_var in staged_vars.items()}
+        "loaded_vars": {var_name: staged_var.value for var_name, staged_var in staged_vars.items()},
+        "integrity_hash": integrity_hash
     }
-    logger.debug(f"COMMIT: Updated global state for environment '{params.top_layer}'")
+    
+    print(f"DEBUG: _last_load set to top_layer={params.top_layer}, cache_key={params.get_cache_key()}", file=sys.stderr)
+    logger.debug(f"CACHING: Updated global state for environment '{params.top_layer}' with cache_key={params.get_cache_key()}, integrity_hash={integrity_hash}")
 
 
 
@@ -739,6 +865,62 @@ def _clear_layer_processing_stack():
     _LAYER_PROCESSING_STACK.clear()
 
 
+def clear_env(known_vars=None):
+    """Clear all environment variables that were set by load_env and clear the cache.
+    
+    This method removes all environment variables that were loaded by previous
+    load_env calls and clears the global cache. Useful for testing to ensure
+    clean state between tests.
+    
+    Args:
+        known_vars: Optional set of known environment variable names that load_env can set.
+                   If None, uses the default set of production environment variables.
+    """
+    global _last_load
+    
+    # Default known variables that load_env can set in production
+    if known_vars is None:
+        known_vars = {
+            'APP_ID', 'CUSTOM_AUTH_ENABLED', 'STUB_AI', 'STUB_DB', 'LOCAL', 'PORT',
+            'GEMINI_API_KEY', 'JWT_SECRET_KEY', 'ALLOWED_USER_EMAILS', 'TEST_API_MODE',
+            'TEST_OMIT_INTEGRATION', 'PROJECT_ID', 'GCP_REGION', 'GCP_ZONE'
+        }
+    
+    # Get currently loaded variables from cache
+    loaded_vars = set()
+    if _last_load and 'loaded_vars' in _last_load:
+        loaded_vars = set(_last_load['loaded_vars'])
+        
+        # Check that all loaded variables are in our known list
+        unknown_vars = loaded_vars - known_vars
+        if unknown_vars:
+            raise RuntimeError(
+                f"clear_env found unknown variables in cache that are not in known_vars: {unknown_vars}. "
+                f"Please add these variables to the known_vars set when calling clear_env() method."
+            )
+    
+    # Check for rogue variables: variables in os.environ that are in our known list
+    # but NOT in the cache manifest - this means they were set outside our tracking
+    current_env_vars = set(os.environ.keys())
+    known_vars_in_env = current_env_vars & known_vars
+    rogue_vars = known_vars_in_env - loaded_vars
+    
+    if rogue_vars:
+        raise RuntimeError(
+            f"clear_env found rogue variables in os.environ that are in known_vars but not in cache manifest: {rogue_vars}. "
+            f"This indicates variables are being set outside of load_env tracking or cache manifest is incomplete. "
+            f"Loaded vars from cache: {loaded_vars}, Rogue vars: {rogue_vars}"
+        )
+    
+    # Clear all variables that were loaded
+    for var_name in loaded_vars:
+        if var_name in os.environ:
+            del os.environ[var_name]
+    
+    # Clear the cache after clearing environment
+    _last_load = None
+
+
 def _run_validators(staged_vars: Dict[str, StagedVariable], 
                    validators: List[Any], top_layer: str, target_profile: Optional[str] = None) -> None:
     """Run all collected validators on the staged variables.
@@ -787,11 +969,56 @@ def _format_source_display(staged_var: StagedVariable) -> str:
         return staged_var.source
 
 
-def _display_environment_variables_table(staged_vars: Dict[str, StagedVariable]) -> None:
+def _display_load_params_table(params: LoadParams, cache_key: str, header: str) -> None:
+    """Display LoadParams and cache key in a table format with cache and integrity information.
+    
+    Args:
+        params: LoadParams object to display
+        cache_key: Cache key string to display
+        header: Header message for the table
+    """
+    import sys
+    
+    print("\n" + "=" * 70, file=sys.stderr)
+    print(f"🔧 {header}", file=sys.stderr)
+    print("=" * 70, file=sys.stderr)
+    
+    # Display LoadParams details
+    print(f"{'PARAMETER':<20} {'VALUE':<50}", file=sys.stderr)
+    print("-" * 70, file=sys.stderr)
+    print(f"{'top_layer':<20} {params.top_layer:<50}", file=sys.stderr)
+    print(f"{'base_layer':<20} {str(params.base_layer):<50}", file=sys.stderr)
+    print(f"{'files':<20} {str(params.files):<50}", file=sys.stderr)
+    print(f"{'force_reload':<20} {str(params.force_reload):<50}", file=sys.stderr)
+    print(f"{'fail_on_secret_error':<20} {str(params.fail_on_secret_error):<50}", file=sys.stderr)
+    print(f"{'cache_key':<20} {cache_key:<50}", file=sys.stderr)
+    
+    # Display cache information if available
+    if _last_load is not None:
+        cached_key = _last_load.get("cache_key", "None")
+        cached_integrity = _last_load.get("integrity_hash", "None")
+        cache_key_matches = cached_key == cache_key
+        
+        print(f"{'cached_key':<20} {cached_key:<50}", file=sys.stderr)
+        print(f"{'cached_integrity':<20} {cached_integrity:<50}", file=sys.stderr)
+        print(f"{'cache_match':<20} {str(cache_key_matches):<50}", file=sys.stderr)
+        
+        if not cache_key_matches:
+            print(f"{'new_params':<20} {str(params.model_dump()):<50}", file=sys.stderr)
+    else:
+        print(f"{'cached_key':<20} {'None':<50}", file=sys.stderr)
+        print(f"{'cached_integrity':<20} {'None':<50}", file=sys.stderr)
+        print(f"{'cache_match':<20} {'False':<50}", file=sys.stderr)
+    
+    print("=" * 70, file=sys.stderr)
+
+
+def _display_environment_variables_table(staged_vars: Dict[str, StagedVariable], layer_name: str) -> None:
     """Display environment variables table with status indicators.
     
     Args:
         staged_vars: Dictionary of staged environment variables with source info
+        layer_name: Name of the environment layer that was loaded
     """
     import sys
     
@@ -799,7 +1026,7 @@ def _display_environment_variables_table(staged_vars: Dict[str, StagedVariable])
         return
     
     print("\n" + "=" * 70, file=sys.stderr)
-    print("🔧 ENVIRONMENT VARIABLES", file=sys.stderr)
+    print(f"🔧 ENVIRONMENT VARIABLES ({layer_name})", file=sys.stderr)
     print("=" * 70, file=sys.stderr)
     
     # Prepare variables for display

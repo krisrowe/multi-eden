@@ -147,3 +147,29 @@ class EnvironmentNotFoundError(ConfigException):
     """Legacy: Use specific config exceptions instead."""
     pass
 
+
+class EnvironmentCorruptionError(ConfigException):
+    """Raised when environment variables have been corrupted since last load."""
+    def __init__(self, message: str, corrupted_vars: list = None):
+        super().__init__(message, error_type="environment_corruption")
+        self.corrupted_vars = corrupted_vars or []
+    
+    def _generate_guidance(self):
+        """Generate specific guidance for environment corruption."""
+        return f"""
+❌ Environment corruption detected: {self}
+
+The environment variables have been modified outside of the load_env system
+since the last successful load. This can cause inconsistent behavior.
+
+Corrupted variables: {', '.join(self.corrupted_vars) if self.corrupted_vars else 'Unknown'}
+
+To fix this:
+1. Clear the environment: clear_env()
+2. Reload your environment: load_env(params)
+3. Avoid manually modifying environment variables that are managed by load_env
+
+If you need to modify environment variables, do it through the configuration
+system rather than directly modifying os.environ.
+"""
+

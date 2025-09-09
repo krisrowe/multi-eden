@@ -38,6 +38,13 @@ def pytest_configure(config):
     pass
 
 
+def pytest_sessionstart(session):
+    """Called after the Session object has been created and before performing collection and entering the run test loop."""
+    # Clear the cache at the start of each test session to ensure fresh loads
+    from multi_eden.build.config.loading import clear_env
+    clear_env()
+
+
 def pytest_runtest_setup(item):
     """
     Called before each test runs to load the appropriate environment.

@@ -155,7 +155,8 @@ def run_pytest(suite, target, config_env, verbose, test_name=None, show_config=F
     
     cmd.extend([
         "--tb=short",
-        "--strict-markers"
+        "--strict-markers",
+        "--capture=no"
     ])
     
     # Filter out integration tests if omit-integration is true

@@ -533,6 +533,15 @@ The `./invoke` script handles all other dependencies automatically.
 4. Run tests: `./invoke test unit`
 5. Submit a pull request
 
+## Future Enhancements
+
+### Centralized Provider Validation Tests
+Move provider validation tests to the SDK package to eliminate duplication across app repositories. Tests would be automatically discovered and run when `invoke test providers` is executed, ensuring consistent provider configuration validation across all applications.
+
+**Implementation approach**: Place provider validation tests in `multi-eden/src/multi_eden/tests/providers/` and modify the test runner to include the SDK's test directory in pytest's search path when running provider tests. This would allow apps to run `./invoke test providers` and automatically execute the same standardized provider validation tests without requiring each app to maintain its own copy.
+
+**Migration consideration**: Existing app repositories with their own provider validation tests (like `tests/providers/test_provider_validation.py`) would need to reconcile any app-specific test cases with the centralized SDK tests, potentially moving app-specific validations to a separate test file while leveraging the common provider validation logic from the SDK.
+
 ## License
 
 [Add your license information here]
