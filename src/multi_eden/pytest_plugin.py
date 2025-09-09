@@ -14,6 +14,9 @@ from typing import Dict, Optional, Any, List
 from multi_eden.build.config.loading import load_env
 from multi_eden.build.config.exceptions import ConfigException
 
+# Global variable to control environment loading output
+_show_skipped_env_load = False
+
 
 def pytest_addoption(parser):
     """Add custom command line options for pytest."""
@@ -29,13 +32,24 @@ def pytest_addoption(parser):
         default=None,
         help="Specify target profile for side-loading (e.g., dev, prod)"
     )
+    parser.addoption(
+        "--show-env-load",
+        action="store_true",
+        default=False,
+        help="Show environment loading details during test execution"
+    )
 
 
 def pytest_configure(config):
     """Configure pytest with environment-specific settings."""
     # The pytest plugin handles --dproj and --target parameters
     # for PROJECT_ID resolution and side-loading
-    pass
+    global _show_skipped_env_load
+    _show_skipped_env_load = config.getoption("--show-env-load", default=False)
+    
+    # Control environment loading output based on the parameter
+    from multi_eden.build.config.loading import set_env_load_output_enabled
+    set_env_load_output_enabled(_show_skipped_env_load)
 
 
 def pytest_sessionstart(session):
@@ -82,6 +96,8 @@ def pytest_runtest_setup(item):
                 top_layer=env_layer,
                 base_layer=target_profile
             )
+            
+            # Load environment - output control is handled by set_env_load_output_enabled
             load_env(params)
                     
         except ConfigException as e:

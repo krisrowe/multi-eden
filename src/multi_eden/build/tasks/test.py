@@ -61,12 +61,14 @@ def _get_test_paths(suite: str) -> list:
 @task(help={
     'suite': 'Test suite to run (unit, ai, firestore, api)',
     'target': 'Target profile for side-loading (e.g., local, dev, prod)',
+    'dproj': 'Project alias for PROJECT_ID resolution (e.g., dev, prod)',
     'verbose': 'Enable verbose output',
     'test_name': 'Filter to specific test method(s) (e.g., "test_long_name_product" or "test_*")',
     'show_config': 'Show detailed configuration including partial secret values',
-    'quiet': 'Suppress configuration display (show only test results)'
+    'quiet': 'Suppress configuration display (show only test results)',
+    'show_env_load': 'Show environment loading details during test execution (default: False)'
 })
-def test(ctx, suite, target=None, config_env=None, verbose=False, test_name=None, show_config=False, quiet=False):
+def test(ctx, suite, target=None, dproj=None, config_env=None, verbose=False, test_name=None, show_config=False, quiet=False, show_env_load=False):
     """
     Run tests for a specific suite.
     
@@ -74,8 +76,16 @@ def test(ctx, suite, target=None, config_env=None, verbose=False, test_name=None
         inv test unit                    # Run unit tests with suite default env
         inv test api --config-env=local-server # Run API tests with specific env
         inv test ai --verbose           # Run AI tests with verbose output
+        inv test ai --dproj=dev         # Run AI tests with dev project ID
         inv test ai --test-name=test_long_name_product  # Run specific AI test
         inv test unit --test-name="test_*auth*"        # Run auth-related unit tests
+        
+        # Pass additional pytest arguments using --
+        inv test unit -- --maxfail=1 --lf  # Stop on first failure, run last failed
+        inv test ai --dproj=dev -- --tb=long --capture=no  # Custom pytest output
+        
+        # Control environment loading output
+        inv test ai --show-env-load  # Show env loading details during test execution
     """
     if suite is None:
         print("❌ Error: Test suite is required")
@@ -89,22 +99,24 @@ def test(ctx, suite, target=None, config_env=None, verbose=False, test_name=None
     # Just get test paths for pytest - no need to reload full test config
     test_paths = _get_test_paths(suite) if suite else None
     
-    return run_pytest(suite, target, config_env, verbose, test_name, show_config, test_paths, quiet)
+    return run_pytest(suite, target, dproj, config_env, verbose, test_name, show_config, test_paths, quiet, show_env_load)
 
 
-def run_pytest(suite, target, config_env, verbose, test_name=None, show_config=False, test_paths=None, quiet=False):
+def run_pytest(suite, target, dproj, config_env, verbose, test_name=None, show_config=False, test_paths=None, quiet=False, show_env_load=False):
     """
     Run pytest with the specified suite and environment.
     
     Args:
         suite: Test suite name
         target: Target profile for side-loading (e.g., local, dev, prod)
+        dproj: Project alias for PROJECT_ID resolution (e.g., dev, prod)
         config_env: Configuration environment (legacy parameter)
         verbose: Whether to enable verbose output
         test_name: Optional test name filter (e.g., "test_long_name_product")
         show_config: Whether to show detailed configuration including secrets
         test_paths: Pre-loaded test paths (optional)
         quiet: Whether to suppress runtime configuration display
+        show_env_load: Whether to show environment loading details during test execution
         
     Returns:
         subprocess.CompletedProcess: Result of pytest execution
@@ -153,9 +165,10 @@ def run_pytest(suite, target, config_env, verbose, test_name=None, show_config=F
     else:
         cmd = [pytest_executable, "-m", "pytest"]
     
+    # Add sensible defaults (users can override with --)
     cmd.extend([
         "--tb=short",
-        "--strict-markers",
+        "--strict-markers", 
         "--capture=no"
     ])
     
@@ -169,6 +182,12 @@ def run_pytest(suite, target, config_env, verbose, test_name=None, show_config=F
     
     if target:
         cmd.extend(["--target", target])
+    
+    if dproj:
+        cmd.extend(["--dproj", dproj])
+    
+    if show_env_load:
+        cmd.extend(["--show-env-load"])
     
     if verbose:
         cmd.append("-v")

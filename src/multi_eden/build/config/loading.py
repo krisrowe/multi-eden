@@ -107,6 +107,15 @@ class LoadedVariable(BaseModel):
 # Track last successful load: {"params": {...}, "loaded_vars": {...}, "integrity_hash": "..."}
 _last_load = None
 
+# Global setting to control environment loading output
+_show_env_load_output: bool = True
+
+
+def set_env_load_output_enabled(enabled: bool) -> None:
+    """Enable or disable environment loading output display."""
+    global _show_env_load_output
+    _show_env_load_output = enabled
+
 
 def _is_same_load(params: LoadParams) -> bool:
     """Check if this is the same load request as the current one using hash comparison and integrity verification."""
@@ -450,8 +459,8 @@ def load_env(params: LoadParams) -> List[LoadedVariable]:
         cached_key = _last_load.get('cache_key') if _last_load else 'None'
         cached_integrity = _last_load.get('integrity_hash') if _last_load else 'None'
         
-        print(f"DEBUG: Cache hit! Current cache: {cached_key}, Request cache: {cache_key}", file=sys.stderr)
-        print(f"DEBUG: Cached integrity hash: {cached_integrity}", file=sys.stderr)
+        logger.debug(f"Cache hit! Current cache: {cached_key}, Request cache: {cache_key}")
+        logger.debug(f"Cached integrity hash: {cached_integrity}")
         
         _display_load_params_table(params, cache_key, "SKIPPING LOAD - SAME ENVIRONMENT ALREADY LOADED")
         logger.debug(f"Skipping reload - same environment already loaded: '{params.top_layer}' with cache_key={cache_key}, integrity_hash={cached_integrity}")
@@ -994,15 +1003,23 @@ def _format_source_display(staged_var: StagedVariable) -> str:
         return staged_var.source
 
 
-def _display_load_params_table(params: LoadParams, cache_key: str, header: str) -> None:
+def _display_load_params_table(params: LoadParams, cache_key: str, header: str, force_display: bool = False) -> None:
     """Display LoadParams and cache key in a table format with cache and integrity information.
     
     Args:
         params: LoadParams object to display
         cache_key: Cache key string to display
         header: Header message for the table
+        force_display: If True, always display. If False, check logging level.
     """
     import sys
+    import logging
+    
+    # Check if we should display the table
+    if not force_display:
+        # Only display if environment loading output is enabled
+        if not _show_env_load_output:
+            return
     
     print("\n" + "=" * 70, file=sys.stderr)
     print(f"🔧 {header}", file=sys.stderr)
