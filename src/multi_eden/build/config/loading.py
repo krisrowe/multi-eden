@@ -69,13 +69,38 @@ def _verify_integrity_hash(cached_integrity_hash: str, staged_vars: Dict[str, St
     return current_hash == cached_integrity_hash
 
 
+class LayerValue(BaseModel):
+    """Pydantic model for a layer-value pair in the inheritance chain."""
+    layer: str
+    value: str
+
 class LoadedVariable(BaseModel):
     """Pydantic model for a loaded environment variable with metadata."""
     name: str
-    value: str
-    source: str  # The layer name where this variable was defined
-    is_override: bool = False  # True if this variable overrode a value from a lower layer
-    value_history: List[str] = []  # History of values through the inheritance chain
+    value: str  # Current value (highest priority)
+    source: str  # The layer name where the current value came from
+    overrides: List[LayerValue] = []  # Ordered list of layer-value pairs (highest to lowest priority)
+    
+    def found(self, value: str, layer: str) -> None:
+        """
+        Record a new value from a layer, pushing previous value to overrides.
+        
+        Args:
+            value: The new value found
+            layer: The layer where this value was found
+        """
+        # If we already have a value, push it to the front of overrides
+        if self.value is not None and self.source is not None:
+            self.overrides.insert(0, LayerValue(layer=self.source, value=self.value))
+        
+        # Update current value and source
+        self.value = value
+        self.source = layer
+    
+    @property
+    def is_override(self) -> bool:
+        """True if this variable overrode a value from a lower layer."""
+        return len(self.overrides) > 0
 
 
 # Track last successful load: {"params": {...}, "loaded_vars": {...}, "integrity_hash": "..."}
@@ -93,7 +118,7 @@ def _is_same_load(params: LoadParams) -> bool:
     cache_key_matches = current_key == last_key
     
     if cache_key_matches:
-        # If cache key matches, verify integrity hash
+        # If cache key matches, verify integrity hash BEFORE returning True
         cached_integrity_hash = _last_load.get("integrity_hash")
         if cached_integrity_hash:
             # We need to stage the variables to verify integrity
@@ -101,19 +126,21 @@ def _is_same_load(params: LoadParams) -> bool:
             # by comparing the expected variables from the cache manifest
             cached_loaded_vars = _last_load.get("loaded_vars", {})
             
-            # Create staged variables from cached data for integrity check
+            # Create staged variables from current os.environ for integrity check
             staged_vars_for_check = {}
             for var_name, var_value in cached_loaded_vars.items():
+                # Use current os.environ value, not cached value
+                current_value = os.environ.get(var_name, var_value)
                 staged_vars_for_check[var_name] = StagedVariable(
                     name=var_name,
-                    value=var_value,
-                    source="cached",
+                    value=current_value,
+                    source="os.environ",
                     is_override=False,
-                    layer_name="cached",
-                    is_side_loaded=False
+                    layer_name="os.environ"
                 )
             
             integrity_matches = _verify_integrity_hash(cached_integrity_hash, staged_vars_for_check)
+            
             
             if not integrity_matches:
                 logger.warning(f"Cache key matches but integrity hash mismatch detected. Cache key: {last_key}, Cached integrity: {cached_integrity_hash}")
@@ -145,96 +172,6 @@ def _clear_our_vars():
     for var_name in _last_load["loaded_vars"]:
         if var_name in os.environ:
             del os.environ[var_name]
-
-
-def _load_environment_variables_staged(env_config: Dict[str, Any], layer_name: str, fail_on_secret_error: bool) -> StagingResult:
-    """
-    Load environment variables into a staging dictionary without touching os.environ.
-    
-    Args:
-        env_config: Environment configuration dictionary
-        layer_name: Name of the environment layer being loaded
-        fail_on_secret_error: If True, raise SecretUnavailableException on any secret failure.
-                             If False, skip failed secrets and continue with others.
-    
-    Returns:
-        StagingResult with staged variables and validator names
-        
-    Raises:
-        SecretUnavailableException: If fail_on_secret_error=True and any secret fails
-    """
-    staged_vars = {}
-    validators = []
-    
-    # Collect validators from this layer
-    layer_validators = _collect_validators_from_config(env_config, layer_name)
-    validators.extend(layer_validators)
-    
-    for key, var_data in env_config.get('env', {}).items():
-        env_var_name = key.upper()
-        
-        # Handle new format with original layer tracking
-        if isinstance(var_data, dict) and 'original_layer' in var_data:
-            value = var_data['value']
-            original_layer = var_data['original_layer']
-        else:
-            # Handle legacy format
-            value = var_data
-            original_layer = layer_name
-        
-        logger.debug(f"Processing variable '{env_var_name}' from layer '{original_layer}'")
-        
-        # Check if already in os.environ (highest priority)
-        if env_var_name in os.environ:
-            existing_value = os.environ[env_var_name]
-            logger.debug(f"Variable '{env_var_name}' already set to '{existing_value}' - keeping existing")
-            staged_vars[env_var_name] = StagedVariable(
-                name=env_var_name,
-                value=existing_value,
-                source=f'config.yaml:{original_layer}',
-                is_override=False,  # Environment overrides are not inheritance overrides
-                layer_name=original_layer,
-                is_side_loaded=False
-            )
-            continue
-        
-        # Process new value (not in os.environ)
-        try:
-            processed_value = _process_value(value, env_var_name, original_layer)
-            # Simple decision: if it's a secret, don't log the value
-            if isinstance(value, str) and value.startswith('secret:'):
-                logger.debug(f"Variable '{env_var_name}' not set - loading new secret value from layer '{original_layer}'")
-            else:
-                logger.debug(f"Variable '{env_var_name}' not set - loading new value '{processed_value}' from layer '{original_layer}'")
-            # Check if this variable overrides a previous one
-            is_override = env_var_name in env_config.get('_overridden_vars', set())
-            
-            staged_vars[env_var_name] = StagedVariable(
-                name=env_var_name,
-                value=processed_value,
-                source=f'config.yaml:{original_layer}',
-                is_override=is_override,
-                layer_name=original_layer,
-                is_side_loaded=False
-            )
-            
-        except (SecretUnavailableException, ProjectIdNotFoundException, ProjectsFileNotFoundException, 
-                NoKeyCachedForLocalSecretsException, LocalSecretNotFoundException, GoogleSecretNotFoundException, 
-                NoProjectIdForGoogleSecretsException, ProjectIdRequiredException) as e:
-            if fail_on_secret_error:
-                logger.error(f"Failed to load configuration for {env_var_name}: {e}")
-                raise  # Re-raise the exception to fail the entire load
-            else:
-                logger.error(f"Failed to load configuration for {env_var_name}: {e}")
-                logger.debug(f"Variable '{env_var_name}' not set - skipping due to configuration error: {e}")
-                # Don't set any value - continue loading other variables
-                
-        except Exception as e:
-            logger.error(f"Failed to process {env_var_name}: {e}")
-            logger.debug(f"Variable '{env_var_name}' not set - skipping due to processing error: {e}")
-            # Don't set any value - continue loading other variables
-    
-    return StagingResult(staged_vars=staged_vars, validators=validators)
 
 
 def _load_staged_vars(staged_vars: Dict[str, StagedVariable]) -> Dict[str, str]:
@@ -503,54 +440,45 @@ def load_env(params: LoadParams) -> List[LoadedVariable]:
         
         _display_load_params_table(params, cache_key, "SKIPPING LOAD - SAME ENVIRONMENT ALREADY LOADED")
         logger.debug(f"Skipping reload - same environment already loaded: '{params.top_layer}' with cache_key={cache_key}, integrity_hash={cached_integrity}")
-        return {}  # Return empty dict since nothing changed
+        return []  # Return empty list since nothing changed
     
     # Display load parameters before processing
     cache_key = params.get_cache_key()
     _display_load_params_table(params, cache_key, "LOADING ENVIRONMENT")
     
-    # PHASE 1: STAGING - Load all new values without touching os.environ
-    staged_vars = _stage_environment_variables(params)
-    
-    # PHASE 2: CLEARING - Remove old variables (only after staging succeeds)
+    # PHASE 1: CLEARING - Remove old variables first to ensure clean state
     _clear_previous_variables()
     
+    # PHASE 2: STAGING - Load all new values without touching os.environ
+    loaded_vars_dict = _stage_environment_variables(params)
+    
     # PHASE 3: APPLYING - Apply all new variables atomically to os.environ
-    _apply_staged_variables(staged_vars)
+    _apply_loaded_variables(loaded_vars_dict)
     
     # PHASE 4: CACHING - Update cache only after os.environ update succeeds
-    _commit_load_state(params, staged_vars)
+    _commit_load_state(params, loaded_vars_dict)
     
     # Display environment variables table
-    _display_environment_variables_table(staged_vars, params.top_layer)
+    _display_environment_variables_table(loaded_vars_dict, params.top_layer)
     
-    # Convert staged_vars to LoadedVariable objects
-    loaded_vars = []
-    for var_name, staged_var in staged_vars.items():
-        loaded_var = LoadedVariable(
-            name=var_name,
-            value=staged_var.value,
-            source=staged_var.source,
-            is_override=staged_var.is_override,
-            value_history=[]  # TODO: Implement value history tracking in staging
-        )
-        loaded_vars.append(loaded_var)
+    # Convert dictionary to list
+    loaded_vars = list(loaded_vars_dict.values())
     
     return loaded_vars
 
 
-def _stage_environment_variables(params: LoadParams) -> Dict[str, StagedVariable]:
+def _stage_environment_variables(params: LoadParams) -> Dict[str, LoadedVariable]:
     """
     PHASE 1: STAGING - Load all new values into a temporary dictionary without touching os.environ.
     
     This function builds a prioritized layer list by walking inheritance chains,
-    then processes layers from lowest to highest priority.
+    then processes layers from lowest to highest priority, tracking the full inheritance chain.
     
     Args:
         params: Load parameters including top_layer, base_layer, etc.
     
     Returns:
-        Dictionary of staged variables: {var_name: StagedVariable}
+        Dictionary of loaded variables: {var_name: LoadedVariable}
     """
     logger.debug(f"STAGING: Loading environment '{params.top_layer}' from files: {params.files}")
     
@@ -562,25 +490,32 @@ def _stage_environment_variables(params: LoadParams) -> Dict[str, StagedVariable
     logger.debug(f"STAGING: Processing layers in order: {layer_names}")
     
     # Process layers from lowest to highest priority (reverse order)
-    staged_vars = {}
+    loaded_vars = {}  # Dictionary of LoadedVariable objects
     validators = []
     
     for layer_name in reversed(layer_names):
         logger.debug(f"STAGING: Processing layer '{layer_name}'")
-        layer_vars, layer_validators = _load_layer_variables(layer_name, merged_config, params.fail_on_secret_error)
+        layer_vars, layer_validators = _load_layer_variables(layer_name, merged_config)
         
-        # Merge layer variables (higher priority layers overwrite lower ones)
-        for var_name, staged_var in layer_vars.items():
-            staged_vars[var_name] = staged_var
-            logger.debug(f"STAGING: Set {var_name} = {staged_var.value} (from {layer_name})")
+        # Process each variable from this layer
+        for var_name, layer_var in layer_vars.items():
+            if var_name in loaded_vars:
+                # Variable already exists, use found() method to track inheritance
+                loaded_vars[var_name].found(layer_var.value, layer_name)
+                logger.debug(f"STAGING: Override {var_name} = {layer_var.value} (from {layer_name})")
+            else:
+                # New variable, use the LoadedVariable from the layer
+                loaded_vars[var_name] = layer_var
+                logger.debug(f"STAGING: New {var_name} = {layer_var.value} (from {layer_name})")
         
         validators.extend(layer_validators)
     
     # PHASE 1.5: VALIDATION - Run collected validators
-    _run_validators(staged_vars, validators, params.top_layer, params.base_layer)
+    # Use LoadedVariable objects directly for validation
+    _run_validators_loaded_vars(loaded_vars, validators, params.top_layer, params.base_layer)
     
-    logger.debug(f"STAGING: Successfully staged {len(staged_vars)} variables")
-    return staged_vars
+    logger.debug(f"STAGING: Successfully staged {len(loaded_vars)} variables")
+    return loaded_vars
 
 
 def _build_prioritized_layer_list(top_layer: str, merged_config: Dict[str, Any], base_layer: Optional[str] = None) -> List[str]:
@@ -635,24 +570,23 @@ def _build_prioritized_layer_list(top_layer: str, merged_config: Dict[str, Any],
     return layer_names
 
 
-def _load_layer_variables(layer_name: str, merged_config: Dict[str, Any], fail_on_secret_error: bool) -> Tuple[Dict[str, StagedVariable], List[Any]]:
+def _load_layer_variables(layer_name: str, merged_config: Dict[str, Any]) -> Tuple[Dict[str, LoadedVariable], List[Any]]:
     """
     Load variables from a single layer.
     
     Args:
         layer_name: Name of the layer to load
         merged_config: Merged configuration from all files
-        fail_on_secret_error: Whether to fail on secret errors
         
     Returns:
-        Tuple of (staged_vars, validators)
+        Tuple of (loaded_vars, validators)
     """
     if layer_name not in merged_config['environments']:
         logger.warning(f"Layer '{layer_name}' not found in configuration")
         return {}, []
     
     env_config = merged_config['environments'][layer_name]
-    staged_vars = {}
+    loaded_vars = {}
     validators = []
     
     # Collect validators from this layer
@@ -663,38 +597,20 @@ def _load_layer_variables(layer_name: str, merged_config: Dict[str, Any], fail_o
     for key, value in env_config.get('env', {}).items():
         env_var_name = key.upper()
         
-        # Check if already in os.environ (highest priority)
-        if env_var_name in os.environ:
-            existing_value = os.environ[env_var_name]
-            staged_vars[env_var_name] = StagedVariable(
-                name=env_var_name,
-                value=existing_value,
-                source='os.environ',
-                is_override=False,
-                layer_name=layer_name,
-                is_side_loaded=False
-            )
-            continue
-        
         # Process new value
         try:
             processed_value = _process_value(value, env_var_name, layer_name)
-            staged_vars[env_var_name] = StagedVariable(
+            loaded_vars[env_var_name] = LoadedVariable(
                 name=env_var_name,
                 value=processed_value,
-                source=f'config.yaml:{layer_name}',
-                is_override=False,
-                layer_name=layer_name,
-                is_side_loaded=False
+                source=layer_name,
+                overrides=[]
             )
         except Exception as e:
-            if fail_on_secret_error:
-                logger.error(f"Failed to process {env_var_name}: {e}")
-                raise
-            else:
-                logger.warning(f"Failed to process {env_var_name}: {e}")
+            logger.error(f"Failed to process {env_var_name}: {e}")
+            raise
     
-    return staged_vars, validators
+    return loaded_vars, validators
 
 
 def _clear_previous_variables() -> None:
@@ -712,38 +628,49 @@ def _clear_previous_variables() -> None:
     logger.debug("CLEARING: Completed clearing previous variables")
 
 
-def _apply_staged_variables(staged_vars: Dict[str, StagedVariable]) -> None:
+def _apply_loaded_variables(loaded_vars: Dict[str, LoadedVariable]) -> None:
     """
-    PHASE 3: APPLYING - Apply all staged variables to os.environ atomically.
+    PHASE 3: APPLYING - Apply all loaded variables to os.environ atomically.
     
     Args:
-        staged_vars: Dictionary of staged variables with metadata
+        loaded_vars: Dictionary of loaded variables with metadata
     """
-    logger.debug(f"APPLYING: Setting {len(staged_vars)} variables in os.environ")
-    for var_name, staged_var in staged_vars.items():
-        logger.debug(f"APPLYING: Setting '{var_name}' = '{staged_var.value}' (source: {staged_var.source})")
-        os.environ[var_name] = staged_var.value
-    logger.debug("APPLYING: Completed applying staged variables")
+    logger.debug(f"APPLYING: Setting {len(loaded_vars)} variables in os.environ")
+    for var_name, loaded_var in loaded_vars.items():
+        logger.debug(f"APPLYING: Setting '{var_name}' = '{loaded_var.value}' (source: {loaded_var.source})")
+        os.environ[var_name] = loaded_var.value
+    logger.debug("APPLYING: Completed applying loaded variables")
 
 
-def _commit_load_state(params: LoadParams, staged_vars: Dict[str, StagedVariable]) -> None:
+def _commit_load_state(params: LoadParams, loaded_vars: Dict[str, LoadedVariable]) -> None:
     """
     PHASE 4: CACHING - Update global _last_load tracker with successful load and integrity hash.
     
     Args:
         params: Load parameters used for this load
-        staged_vars: Variables that were loaded with metadata
+        loaded_vars: Variables that were loaded with metadata
     """
     import sys
     global _last_load
     
     # Calculate integrity hash of all os.environ values that were written in Phase 3
+    # Convert LoadedVariable to StagedVariable for integrity hash calculation
+    staged_vars = {}
+    for var_name, loaded_var in loaded_vars.items():
+        staged_vars[var_name] = StagedVariable(
+            name=loaded_var.name,
+            value=loaded_var.value,
+            source=f"config.yaml:{loaded_var.source}",
+            is_override=loaded_var.is_override,
+            layer_name=loaded_var.source
+        )
+    
     integrity_hash = _calculate_integrity_hash(staged_vars)
     
     _last_load = {
         "cache_key": params.get_cache_key(),
         "params": params.model_dump(),
-        "loaded_vars": {var_name: staged_var.value for var_name, staged_var in staged_vars.items()},
+        "loaded_vars": {var_name: loaded_var.value for var_name, loaded_var in loaded_vars.items()},
         "integrity_hash": integrity_hash
     }
     
@@ -950,16 +877,50 @@ def _run_validators(staged_vars: Dict[str, StagedVariable],
                 raise ConfigException(f"Validator {validator.__class__.__name__} failed: {e}")
 
 
+def _run_validators_loaded_vars(loaded_vars: Dict[str, LoadedVariable], 
+                               validators: List[Any], top_layer: str, target_profile: Optional[str] = None) -> None:
+    """Run all collected validators on the loaded variables.
+    
+    Args:
+        loaded_vars: Dictionary of loaded environment variables with inheritance tracking
+        validators: List of validator instances to run
+        top_layer: The primary environment layer being loaded
+        target_profile: Optional target profile for base layer
+        
+    Raises:
+        ConfigException: If any validator fails validation
+    """
+    # Remove duplicates while preserving order
+    unique_validators = list(dict.fromkeys(validators))
+    
+    for validator in unique_validators:
+        try:
+            # Convert LoadedVariable objects to StagedVariable for validator compatibility
+            # TODO: Update validators to work with LoadedVariable directly
+            staged_vars = {}
+            for var_name, loaded_var in loaded_vars.items():
+                staged_vars[var_name] = StagedVariable(
+                    name=loaded_var.name,
+                    value=loaded_var.value,
+                    source=f"config.yaml:{loaded_var.source}",
+                    is_override=loaded_var.is_override,
+                    layer_name=loaded_var.source
+                )
+            
+            if validator.should_validate(staged_vars, top_layer, target_profile):
+                validator.validate(staged_vars, top_layer, target_profile)
+        except Exception as e:
+            # Re-raise ConfigException as-is, wrap others
+            from multi_eden.build.config.exceptions import ConfigException
+            if isinstance(e, ConfigException):
+                raise
+            else:
+                raise ConfigException(f"Validator {validator.__class__.__name__} failed: {e}")
+
+
 def _format_source_display(staged_var: StagedVariable) -> str:
     """Format the source display for a staged variable."""
-    if staged_var.is_side_loaded:
-        if staged_var.source.startswith("config.yaml:"):
-            layer_name = staged_var.source.replace("config.yaml:", "")
-            return f"{layer_name} (side-load)"
-        else:
-            # For side-loaded values from os.environ, show the layer name from the StagedVariable
-            return f"{staged_var.layer_name} (side-load)"
-    elif staged_var.source.startswith("config.yaml:"):
+    if staged_var.source.startswith("config.yaml:"):
         layer_name = staged_var.source.replace("config.yaml:", "")
         if staged_var.is_override:
             return f"{layer_name}* (top layer)"
@@ -990,7 +951,6 @@ def _display_load_params_table(params: LoadParams, cache_key: str, header: str) 
     print(f"{'base_layer':<20} {str(params.base_layer):<50}", file=sys.stderr)
     print(f"{'files':<20} {str(params.files):<50}", file=sys.stderr)
     print(f"{'force_reload':<20} {str(params.force_reload):<50}", file=sys.stderr)
-    print(f"{'fail_on_secret_error':<20} {str(params.fail_on_secret_error):<50}", file=sys.stderr)
     print(f"{'cache_key':<20} {cache_key:<50}", file=sys.stderr)
     
     # Display cache information if available
@@ -1013,16 +973,16 @@ def _display_load_params_table(params: LoadParams, cache_key: str, header: str) 
     print("=" * 70, file=sys.stderr)
 
 
-def _display_environment_variables_table(staged_vars: Dict[str, StagedVariable], layer_name: str) -> None:
+def _display_environment_variables_table(loaded_vars: Dict[str, LoadedVariable], layer_name: str) -> None:
     """Display environment variables table with status indicators.
     
     Args:
-        staged_vars: Dictionary of staged environment variables with source info
+        loaded_vars: Dictionary of loaded environment variables with source info
         layer_name: Name of the environment layer that was loaded
     """
     import sys
     
-    if not staged_vars:
+    if not loaded_vars:
         return
     
     print("\n" + "=" * 70, file=sys.stderr)
@@ -1031,7 +991,7 @@ def _display_environment_variables_table(staged_vars: Dict[str, StagedVariable],
     
     # Prepare variables for display
     all_vars = []
-    for name, staged_var in staged_vars.items():
+    for name, loaded_var in loaded_vars.items():
         # Truncate variable name if too long (18 chars max to fit column + space)
         if len(name) > 18:
             display_name = name[:15] + "..."
@@ -1039,20 +999,27 @@ def _display_environment_variables_table(staged_vars: Dict[str, StagedVariable],
             display_name = name
         
         # Truncate value if too long (18 chars max to fit column + space)
-        if len(staged_var.value) > 18:
-            display_value = staged_var.value[:15] + "..."
+        if len(loaded_var.value) > 18:
+            display_value = loaded_var.value[:15] + "..."
         else:
-            display_value = staged_var.value
+            display_value = loaded_var.value
         
         # Determine status based on value availability
-        if staged_var.value and staged_var.value != "(not available)":
+        if loaded_var.value and loaded_var.value != "(not available)":
             status = "✅"
         else:
             status = "❌"
             display_value = "(not available)"
         
-        # Process source display
-        display_source = _format_source_display(staged_var)
+        # Process source display - create a temporary StagedVariable for display formatting
+        temp_staged_var = StagedVariable(
+            name=loaded_var.name,
+            value=loaded_var.value,
+            source=f"config.yaml:{loaded_var.source}",
+            is_override=loaded_var.is_override,
+            layer_name=loaded_var.source
+        )
+        display_source = _format_source_display(temp_staged_var)
         all_vars.append((name, display_name, status, display_value, display_source))
     
     # Sort variables by original name for consistent display

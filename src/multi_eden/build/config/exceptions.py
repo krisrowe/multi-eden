@@ -151,8 +151,8 @@ class EnvironmentNotFoundError(ConfigException):
 class EnvironmentCorruptionError(ConfigException):
     """Raised when environment variables have been corrupted since last load."""
     def __init__(self, message: str, corrupted_vars: list = None):
-        super().__init__(message, error_type="environment_corruption")
         self.corrupted_vars = corrupted_vars or []
+        super().__init__(message, error_type="environment_corruption")
     
     def _generate_guidance(self):
         """Generate specific guidance for environment corruption."""

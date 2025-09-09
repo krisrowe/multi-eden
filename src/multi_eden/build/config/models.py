@@ -14,7 +14,6 @@ class StagedVariable(BaseModel):
     source: str
     is_override: bool = False
     layer_name: str
-    is_side_loaded: bool = False
 
 
 class StagingResult(BaseModel):
@@ -28,7 +27,6 @@ class LoadParams(BaseModel):
     top_layer: str
     files: Optional[List[str]] = None
     force_reload: bool = False
-    fail_on_secret_error: bool = True
     base_layer: Optional[str] = None
     
     def get_cache_key(self) -> str:

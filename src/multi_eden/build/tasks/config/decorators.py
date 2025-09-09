@@ -35,7 +35,7 @@ def config(profile: str = None):
                     sys.exit(1)
             
             try:
-                params = LoadParams(top_layer=profile_to_load, fail_on_secret_error=True)
+                params = LoadParams(top_layer=profile_to_load)
                 load_env(params)
             except ConfigException as e:
                 print(e.guidance, file=sys.stderr)

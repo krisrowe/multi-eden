@@ -80,7 +80,6 @@ def pytest_runtest_setup(item):
             from multi_eden.build.config.models import LoadParams
             params = LoadParams(
                 top_layer=env_layer,
-                fail_on_secret_error=True,
                 base_layer=target_profile
             )
             load_env(params)
