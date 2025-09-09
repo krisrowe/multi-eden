@@ -5,9 +5,10 @@ This module provides validators for testing-specific configuration requirements,
 such as remote API testing validation.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict
 from .base import BaseValidator
 from multi_eden.build.config.exceptions import RemoteApiTestingException
+from ..models import StagedVariable, LoadParams
 
 
 class RemoteApiTestingValidator(BaseValidator):
@@ -17,25 +18,25 @@ class RemoteApiTestingValidator(BaseValidator):
     target configuration variables are available to build the API URL.
     """
     
-    def should_validate(self, staged_vars: Dict[str, Any], 
-                       top_layer: str, target_profile: Optional[str] = None) -> bool:
-        """Only validate if TEST_API_MODE=REMOTE is set."""
-        test_api_mode_var = staged_vars.get('TEST_API_MODE')
-        test_api_mode = test_api_mode_var.value if test_api_mode_var else None
-        return test_api_mode == 'REMOTE'
-    
-    def validate(self, staged_vars: Dict[str, Any], 
-                top_layer: str, target_profile: Optional[str] = None) -> None:
+    def validate(self, staged_vars: Dict[str, StagedVariable], 
+                params: LoadParams) -> None:
         """Validate that remote API testing has required configuration.
+        
+        Only validates if TEST_API_MODE=REMOTE is set. If not set, quietly returns.
         
         Args:
             staged_vars: Dictionary of staged environment variables with metadata
-            top_layer: The primary environment layer being loaded
-            target_profile: Optional target profile for base layer
+            params: Load parameters providing context for validation
             
         Raises:
             RemoteApiTestingException: If TEST_API_MODE=REMOTE but required vars missing
         """
+        # Only validate if TEST_API_MODE=REMOTE is set
+        test_api_mode_var = staged_vars.get('TEST_API_MODE')
+        test_api_mode = test_api_mode_var.value if test_api_mode_var else None
+        if test_api_mode != 'REMOTE':
+            return  # Not doing remote API testing, no validation needed
+        
         # Check for explicit TEST_API_URL first
         if 'TEST_API_URL' in staged_vars:
             return  # Explicit URL provided, no further validation needed
@@ -62,8 +63,8 @@ class RemoteApiTestingValidator(BaseValidator):
         if not app_id:
             missing_vars.append('APP_ID')
         
-        # Determine which profile triggered this validation
-        profile_name = target_profile or top_layer
+        # Use LoadParams for better context
+        profile_name = params.base_layer or params.top_layer
         raise RemoteApiTestingException(
             f"Remote API testing requires target configuration (from profile '{profile_name}')",
             missing_vars=missing_vars,

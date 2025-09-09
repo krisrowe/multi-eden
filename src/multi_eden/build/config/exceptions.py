@@ -19,9 +19,13 @@ class ConfigException(Exception):
     def _get_current_command(self):
         """Get the current command being executed."""
         if len(sys.argv) > 0:
-            # Extract just the command name, not the full path
-            command = sys.argv[0].split('/')[-1]  # Get just the filename, not full path
-            return command
+            # Get the full command with all arguments, but use just the filename for the executable
+            executable = sys.argv[0].split('/')[-1]  # Get just the filename, not full path
+            args = sys.argv[1:]  # Get all arguments
+            if args:
+                return f"{executable} {' '.join(args)}"
+            else:
+                return executable
         return "unknown command"
 
     def _generate_guidance(self):
@@ -171,5 +175,50 @@ To fix this:
 
 If you need to modify environment variables, do it through the configuration
 system rather than directly modifying os.environ.
+"""
+
+
+class RemoteApiTestingException(ConfigException):
+    """Raised when remote API testing configuration is invalid."""
+    def __init__(self, message: str, missing_vars: list = None, profile_name: str = None):
+        self.missing_vars = missing_vars or []
+        self.profile_name = profile_name
+        super().__init__(message, error_type="remote_api_testing")
+    
+    def _generate_guidance(self):
+        """Generate specific guidance for remote API testing configuration."""
+        command = self._get_current_command()
+        return f"""
+❌ Remote API testing configuration error: {self}
+
+This error occurs because TEST_API_MODE=REMOTE is set in profile '{self.profile_name or 'Unknown'}', 
+but the required configuration variables are missing to build the API URL.
+
+Missing variables: {', '.join(self.missing_vars) if self.missing_vars else 'Unknown'}
+
+💡 Resolve this in one of the following ways (option 1 is strongly preferred):
+
+1. Use built-in deployment profiles (STRONGLY PREFERRED):
+   {command} --target local     # Uses LOCAL=true + PORT=8000
+   {command} --target dev       # Uses PROJECT_ID + APP_ID from dev profile
+   {command} --target prod      # Uses PROJECT_ID + APP_ID from prod profile
+   
+   The --target option automatically provides the same variable combination 
+   that you would set manually in option 2 below.
+
+2. Set environment variables directly:
+   For local testing: export LOCAL=true && export PORT=8000
+     → Builds: http://localhost:8000
+   
+   For cloud testing: export PROJECT_ID=your-project && export APP_ID=your-app-id
+     → Uses PROJECT_ID to find the Google Cloud project
+     → Uses APP_ID to find the Cloud Run service by name (e.g., "your-app-id")
+     → Retrieves the service URL (e.g., https://your-app-id-xyz123-uc.a.run.app)
+
+3. Use explicit URL: export TEST_API_URL=https://your-api.com
+
+4. Override configuration in your app's config.yaml:
+   Add the missing variables to the {self.profile_name or 'target'} profile
+   (This is the least recommended approach)
 """
 

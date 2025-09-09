@@ -268,10 +268,11 @@ def _build_remote_api_url() -> Optional[str]:
         print(f"DEBUG: Built URL: {url}")
         return url
     
-    # Check if we have a target project ID for remote testing
-    target_project_id = os.environ.get('TARGET_PROJECT_ID')
-    if target_project_id:
-        # Build URL for remote project
+    # Check if we have cloud testing configuration
+    project_id = os.environ.get('PROJECT_ID')
+    app_id = os.environ.get('APP_ID')
+    if project_id and app_id:
+        # Build URL for cloud project
         # This would need to be configured based on your deployment setup
         # For now, return None to indicate we can't build it
         return None

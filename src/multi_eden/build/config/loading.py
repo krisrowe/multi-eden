@@ -27,6 +27,7 @@ from .exceptions import (
     ProjectsFileNotFoundException
 )
 from .secrets import get_secret
+from .validators.base import BaseValidator
 
 logger = logging.getLogger(__name__)
 
@@ -295,6 +296,7 @@ def _load_environment_variables(env_config: Dict[str, Any], layer_name: str) -> 
 def _load_and_merge_files(files: List[str]) -> Dict[str, Any]:
     """Load and merge multiple configuration files."""
     merged_environments = {}
+    global_validators = []
     
     for file_path in files:
         # Resolve file path (handle {cwd} placeholder)
@@ -330,12 +332,25 @@ def _load_and_merge_files(files: List[str]) -> Dict[str, Any]:
                         merged_environments[layer_name] = layer_config
                 
                 logger.debug(f"Loaded {len(config['layers'])} layers from {resolved_path}")
+            
+            # Collect global validators
+            if 'validators' in config:
+                validator_packages = config['validators']
+                if isinstance(validator_packages, list):
+                    for package_path in validator_packages:
+                        discovered_validators = _discover_validators_from_package(package_path)
+                        global_validators.extend(discovered_validators)
+                        logger.debug(f"Discovered {len(discovered_validators)} validators from package {package_path}")
+                elif isinstance(validator_packages, str):
+                    discovered_validators = _discover_validators_from_package(validator_packages)
+                    global_validators.extend(discovered_validators)
+                    logger.debug(f"Discovered {len(discovered_validators)} validators from package {validator_packages}")
         
         except Exception as e:
             logger.error(f"Failed to load config file {resolved_path}: {e}")
             raise EnvironmentLoadError(f"Failed to load config file {resolved_path}: {e}")
     
-    return {'environments': merged_environments}
+    return {'environments': merged_environments, 'global_validators': global_validators}
 
 def _process_inheritance(top_layer: str, merged_config: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
     """Process environment inheritance.
@@ -493,6 +508,11 @@ def _stage_environment_variables(params: LoadParams) -> Dict[str, LoadedVariable
     loaded_vars = {}  # Dictionary of LoadedVariable objects
     validators = []
     
+    # Add global validators first
+    global_validators = merged_config.get('global_validators', [])
+    validators.extend(global_validators)
+    logger.debug(f"STAGING: Added {len(global_validators)} global validators")
+    
     for layer_name in reversed(layer_names):
         logger.debug(f"STAGING: Processing layer '{layer_name}'")
         layer_vars, layer_validators = _load_layer_variables(layer_name, merged_config)
@@ -512,7 +532,7 @@ def _stage_environment_variables(params: LoadParams) -> Dict[str, LoadedVariable
     
     # PHASE 1.5: VALIDATION - Run collected validators
     # Use LoadedVariable objects directly for validation
-    _run_validators_loaded_vars(loaded_vars, validators, params.top_layer, params.base_layer)
+    _run_validators_loaded_vars(loaded_vars, validators, params)
     
     logger.debug(f"STAGING: Successfully staged {len(loaded_vars)} variables")
     return loaded_vars
@@ -682,6 +702,52 @@ def _commit_load_state(params: LoadParams, loaded_vars: Dict[str, LoadedVariable
 
 # Validator system
 _LAYER_PROCESSING_STACK = []  # Track layer processing to detect circular refs
+
+
+def _discover_validators_from_package(package_path: str) -> List[Any]:
+    """Discover all validators from a package by importing and finding BaseValidator subclasses.
+    
+    Args:
+        package_path: The package path to discover validators from (e.g., 'multi_eden.build.config.validators')
+        
+    Returns:
+        List of validator instances found in the package
+    """
+    validators = []
+    
+    try:
+        # Import the package
+        package = __import__(package_path, fromlist=[''])
+        
+        # Get all modules in the package
+        if hasattr(package, '__path__'):
+            import pkgutil
+            for importer, modname, ispkg in pkgutil.iter_modules(package.__path__, package.__name__ + "."):
+                try:
+                    # Import the module
+                    module = __import__(modname, fromlist=[''])
+                    
+                    # Find all classes that inherit from BaseValidator
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        if (isinstance(attr, type) and 
+                            attr != BaseValidator and 
+                            issubclass(attr, BaseValidator) and
+                            not attr_name.startswith('_')):
+                            
+                            # Create an instance of the validator
+                            validator_instance = attr()
+                            validators.append(validator_instance)
+                            logger.debug(f"Discovered validator '{attr_name}' from {modname}")
+                            
+                except Exception as e:
+                    logger.warning(f"Failed to import module {modname}: {e}")
+                    continue
+                    
+    except Exception as e:
+        logger.error(f"Failed to discover validators from package {package_path}: {e}")
+    
+    return validators
 
 
 def _resolve_validator_class(validator_name: str):
@@ -878,14 +944,13 @@ def _run_validators(staged_vars: Dict[str, StagedVariable],
 
 
 def _run_validators_loaded_vars(loaded_vars: Dict[str, LoadedVariable], 
-                               validators: List[Any], top_layer: str, target_profile: Optional[str] = None) -> None:
+                               validators: List[Any], params: LoadParams) -> None:
     """Run all collected validators on the loaded variables.
     
     Args:
         loaded_vars: Dictionary of loaded environment variables with inheritance tracking
         validators: List of validator instances to run
-        top_layer: The primary environment layer being loaded
-        target_profile: Optional target profile for base layer
+        params: Load parameters providing context for validation
         
     Raises:
         ConfigException: If any validator fails validation
@@ -896,7 +961,6 @@ def _run_validators_loaded_vars(loaded_vars: Dict[str, LoadedVariable],
     for validator in unique_validators:
         try:
             # Convert LoadedVariable objects to StagedVariable for validator compatibility
-            # TODO: Update validators to work with LoadedVariable directly
             staged_vars = {}
             for var_name, loaded_var in loaded_vars.items():
                 staged_vars[var_name] = StagedVariable(
@@ -907,8 +971,8 @@ def _run_validators_loaded_vars(loaded_vars: Dict[str, LoadedVariable],
                     layer_name=loaded_var.source
                 )
             
-            if validator.should_validate(staged_vars, top_layer, target_profile):
-                validator.validate(staged_vars, top_layer, target_profile)
+            validator.validate(staged_vars, params)
+            logger.debug(f"Validator {validator.__class__.__name__} completed for environment '{params.top_layer}'")
         except Exception as e:
             # Re-raise ConfigException as-is, wrap others
             from multi_eden.build.config.exceptions import ConfigException

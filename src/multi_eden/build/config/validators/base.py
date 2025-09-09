@@ -8,6 +8,7 @@ before they are applied to the environment.
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
+from ..models import StagedVariable, LoadParams
 
 
 class BaseValidator(ABC):
@@ -27,33 +28,20 @@ class BaseValidator(ABC):
         self.name = name or self.__class__.__name__
     
     @abstractmethod
-    def validate(self, staged_vars: Dict[str, Any], 
-                top_layer: str, target_profile: Optional[str] = None) -> None:
+    def validate(self, staged_vars: Dict[str, StagedVariable], 
+                params: LoadParams) -> None:
         """Validate staged variables.
         
+        This method should check if the required conditions are met. If the conditions
+        are not met (e.g., the variable that triggers this validator is not present),
+        the method should simply return without doing anything. If the conditions are
+        met but validation fails, raise a ConfigException.
+        
         Args:
             staged_vars: Dictionary of staged environment variables with metadata
-            top_layer: The primary environment layer being loaded
-            target_profile: Optional target profile for side-loading
+            params: Load parameters providing context for validation
             
         Raises:
-            ConfigException: If validation fails
+            ConfigException: If validation fails when conditions are met
         """
         pass
-    
-    def should_validate(self, staged_vars: Dict[str, Any], 
-                       top_layer: str, target_profile: Optional[str] = None) -> bool:
-        """Determine if this validator should run.
-        
-        Override this method to add conditions for when the validator should run.
-        By default, validators always run.
-        
-        Args:
-            staged_vars: Dictionary of staged environment variables with metadata
-            top_layer: The primary environment layer being loaded
-            target_profile: Optional target profile for side-loading
-            
-        Returns:
-            True if validator should run, False otherwise
-        """
-        return True

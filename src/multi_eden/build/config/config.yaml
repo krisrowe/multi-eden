@@ -1,3 +1,7 @@
+# Global validators - automatically discovered and run for all environments
+validators:
+  - multi_eden.build.config.validators
+
 layers:
   app:  # Base application layer
     env:
@@ -35,8 +39,6 @@ layers:
     inherits: "app"
     env:
       TEST_API_MODE: REMOTE  # Indicates external API testing
-    validators:
-      - RemoteApiTestingValidator
   
   db-test:
     inherits: "app"
