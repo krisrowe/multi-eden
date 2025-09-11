@@ -167,8 +167,6 @@ def run_pytest(suite, target, dproj, config_env, verbose, test_name=None, show_c
     
     # Add sensible defaults (users can override with --)
     cmd.extend([
-        "--tb=short",
-        "--strict-markers", 
         "--capture=no"
     ])
     

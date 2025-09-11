@@ -187,18 +187,6 @@ class ModelBasedServiceResponse(BaseModel):
     status: str = Field(description="Service status")
 
 
-class MealAnalysisResponse(ModelBasedServiceResponse):
-    """Response model for meal analysis service."""
-    items: List['ProcessedFood'] = Field(description="List of analyzed food items")
-    totals: 'NutritionalInfo' = Field(description="Aggregated nutritional totals")
-    verified_calculation: bool = Field(description="Whether calculations were verified")
-
-
-class MealSegmentationResponse(ModelBasedServiceResponse):
-    """Response model for meal segmentation service."""
-    items: List[str] = Field(description="List of segmented food item descriptions")
-
-
 class ModelBasedService:
     """
     Base class for services that use AI models with configuration-driven defaults.

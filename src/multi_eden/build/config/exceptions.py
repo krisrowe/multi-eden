@@ -62,10 +62,10 @@ class NoProjectIdForGoogleSecretsException(ConfigException):
         return f"""
 ❌ Secret '{self.secret_name}' unavailable because Google Secret Manager is used per app.yaml and no PROJECT_ID is available
 💡 You're configured for Google secrets manager in app.yaml, therefore, you must do one of the following:
-   1. Set PROJECT_ID environment variable: export PROJECT_ID=your-project
-   2. Or specify an environment: {command} --dproj=<your-environment>
+   1. Specify an environment: {command} --dproj=dev
       (Note: --dproj must be a name found in .projects file that is mapped to a Google Cloud project id
        where {self.secret_name} is registered as the name of a secret in Secrets Manager)
+   2. Or set PROJECT_ID environment variable: export PROJECT_ID=your-project
 """
 
 
