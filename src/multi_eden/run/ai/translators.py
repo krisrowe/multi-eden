@@ -9,7 +9,7 @@ from typing import Dict, Any, List, Optional, TypeVar, Generic, Type
 from pydantic import BaseModel, ValidationError
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__package__)
 
 T = TypeVar('T', bound=BaseModel)
 

@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Callable
 import logging
 import inspect
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__package__)
 
 
 class MockClient(ModelClient):

@@ -9,7 +9,7 @@ from typing import Optional
 from .factory import ModelClientFactory
 from .config import AIConfig
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__package__)
 
 
 @task

@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any
 from pydantic import Field
 from .services import ModelBasedService, ModelBasedServiceResponse, MetaModelResponse
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__package__)
 
 
 class PromptResponse(ModelBasedServiceResponse):

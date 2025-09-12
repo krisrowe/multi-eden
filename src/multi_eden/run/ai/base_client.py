@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Callable
 from .services import get_prompt
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__package__)
 
 
 class ModelClient(ABC):

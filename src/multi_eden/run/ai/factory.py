@@ -13,7 +13,7 @@ from ..config.models import (
 )
 from .services import get_service_default_model, get_prompt
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__package__)
 
 
 def _resolve_provider_and_model(model_id: Optional[str], service_name: str) -> tuple[str, str]:

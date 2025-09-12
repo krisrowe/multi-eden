@@ -16,7 +16,7 @@ except ImportError:
     ProcessedFood = Any
     NutritionalInfo = Any
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__package__)
 
 # Generic type for items in ModelBasedServiceResponse
 T = TypeVar('T')

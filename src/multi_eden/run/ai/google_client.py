@@ -7,7 +7,7 @@ import json
 from typing import Dict, Any, Optional, List, Callable
 from .base_client import ModelClient
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__package__)
 
 # Suppress verbose logging from external libraries
 logging.getLogger("google_genai").setLevel(logging.WARNING)

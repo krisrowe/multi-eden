@@ -3,162 +3,136 @@
 Centralized logging configuration.
 
 This module provides a bootstrap_logging function that can be imported from any entry point
-to configure logging consistently across the application.
+to configure logging consistently across the application using Python's native INI format.
 """
 
 import logging
-import logging.handlers
+import logging.config
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any
-import yaml
+from typing import Optional
 
 
-def _load_logging_config() -> Dict[str, Any]:
+def _find_logging_config() -> Optional[Path]:
     """
-    Load logging configuration from config.yaml.
+    Find the logging configuration file.
+    
+    Looks for logging.ini in the current working directory or core/ subdirectory.
     
     Returns:
-        Dictionary containing logging configuration with defaults applied.
+        Path to logging configuration file, or None if not found.
     """
-    # Default logging configuration
-    default_config = {
-        'logging': {
-            'enabled': True,
-            'level': 'INFO',
-            'format': '%(levelname)s: %(name)s: %(message)s',
-            'handlers': {
-                'console': {
-                    'enabled': True,
-                    'level': 'INFO'
-                },
-                'file': {
-                    'enabled': False,
-                    'level': 'DEBUG',
-                    'filename': 'app.log',
-                    'max_bytes': 10485760,  # 10MB
-                    'backup_count': 5
-                }
-            }
-        }
-    }
+    # Check current directory first
+    current_dir_config = Path('logging.ini')
+    if current_dir_config.exists():
+        return current_dir_config
     
-    # Check for LOG_LEVEL environment variable first (takes precedence)
-    env_log_level = os.environ.get('LOG_LEVEL')
-    if env_log_level and env_log_level.strip():
-        # Environment variable takes precedence
-        env_level = env_log_level.strip().upper()
-        if env_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
-            print(f"LOG_LEVEL environment variable set to: {env_level}", file=sys.stderr)
-            # Override the level in our config
-            default_config['logging']['level'] = env_level
-            # Also override console handler level to match
-            default_config['logging']['handlers']['console']['level'] = env_level
+    # Check core/ subdirectory
+    core_dir_config = Path('core/logging.ini')
+    if core_dir_config.exists():
+        return core_dir_config
     
-    try:
-        # Try to load from config.yaml
-        config_path = Path(__file__).parent / 'config.yaml'
-        if config_path.exists():
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f)
-                if config and 'logging' in config:
-                    # Merge with defaults
-                    logging_config = default_config['logging'].copy()
-                    logging_config.update(config['logging'])
-                    return logging_config
-    except Exception as e:
-        # If anything goes wrong, log a warning and use defaults
-        print(f"Warning: Failed to load logging config from config.yaml: {e}", file=sys.stderr)
-        print("Using default logging configuration", file=sys.stderr)
+    # Check if we're in a subdirectory and look up
+    parent_core_config = Path('../core/logging.ini')
+    if parent_core_config.exists():
+        return parent_core_config
     
-    return default_config['logging']
+    return None
+
+
+def _setup_environment_variables():
+    """
+    Set up environment variables for logging configuration.
+    
+    Sets LOG_LEVEL to INFO if not already set, ensuring the INI file has a valid value.
+    """
+    if 'LOG_LEVEL' not in os.environ:
+        os.environ['LOG_LEVEL'] = 'INFO'
+    
+    # Validate LOG_LEVEL
+    log_level = os.environ['LOG_LEVEL'].strip().upper()
+    if log_level not in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+        print(f"Warning: Invalid LOG_LEVEL '{log_level}', using INFO", file=sys.stderr)
+        os.environ['LOG_LEVEL'] = 'INFO'
 
 
 def bootstrap_logging(name: Optional[str] = None) -> None:
     """
-    Bootstrap logging configuration for the application.
+    Bootstrap logging configuration for the application using Python's native INI format.
     
     This function:
-    1. Loads logging configuration from config.yaml
-    2. Sets up handlers (console, file) based on configuration
-    3. Configures the root logger with the specified level and format
-    4. Can be called from any entry point to ensure consistent logging
+    1. Sets up environment variables for INI file substitution
+    2. Loads logging configuration from logging.ini using logging.config.fileConfig()
+    3. Applies LOG_LEVEL environment variable override after loading
+    4. Uses Python's native logging configuration - no custom parsing needed!
     
     Args:
         name: Optional name for the logger (defaults to root logger)
     """
-    config = _load_logging_config()
+    # Set up environment variables for INI file substitution
+    _setup_environment_variables()
     
-    if not config.get('enabled', True):
-        # Logging disabled - set root logger to CRITICAL to suppress all output
-        logging.getLogger().setLevel(logging.CRITICAL)
+    # Find the logging configuration file
+    config_path = _find_logging_config()
+    
+    if config_path is None:
+        # Fallback to basic configuration if no INI file found
+        print("Warning: No logging.ini file found, using basic logging configuration", file=sys.stderr)
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(levelname)s: %(name)s: %(message)s',
+            stream=sys.stderr
+        )
         return
     
-    # Parse log level
-    level_name = config.get('level', 'INFO').upper()
     try:
-        level = getattr(logging, level_name)
-    except AttributeError:
-        print(f"Warning: Invalid log level '{level_name}', using INFO", file=sys.stderr)
-        level = logging.INFO
-    
-    # Create formatter
-    formatter = logging.Formatter(config.get('format', '%(levelname)s: %(name)s: %(message)s'))
-    
-    # Configure root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
-    
-    # Remove existing handlers to avoid duplicates
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-    
-    # Console handler
-    if config.get('handlers', {}).get('console', {}).get('enabled', True):
-        console_handler = logging.StreamHandler(sys.stderr)
-        console_level = config.get('handlers', {}).get('console', {}).get('level', 'INFO')
-        try:
-            console_handler.setLevel(getattr(logging, console_level.upper()))
-        except AttributeError:
-            console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(formatter)
-        root_logger.addHandler(console_handler)
-    
-    # File handler
-    file_config = config.get('handlers', {}).get('file', {})
-    if file_config.get('enabled', False):
-        try:
-            filename = file_config.get('filename', 'app.log')
-            max_bytes = file_config.get('max_bytes', 10485760)
-            backup_count = file_config.get('backup_count', 5)
+        # Use Python's native INI configuration loader
+        logging.config.fileConfig(
+            str(config_path),
+            disable_existing_loggers=False
+        )
+        
+        # Apply LOG_LEVEL environment variable override
+        env_log_level = os.environ.get('LOG_LEVEL')
+        if env_log_level and env_log_level.strip():
+            env_level = env_log_level.strip().upper()
+            if env_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+                print(f"LOG_LEVEL environment variable set to: {env_level}", file=sys.stderr)
+                # Override root logger and console handler levels
+                root_logger = logging.getLogger()
+                root_logger.setLevel(getattr(logging, env_level))
+                
+                # Update console handler level
+                for handler in root_logger.handlers:
+                    if isinstance(handler, logging.StreamHandler):
+                        handler.setLevel(getattr(logging, env_level))
+                
+                # Override specific logger levels that are commonly used
+                specific_loggers = [
+                    'pyobcomp.comparison',
+                    'multi_eden.run.ai'
+                ]
+                for logger_name in specific_loggers:
+                    specific_logger = logging.getLogger(logger_name)
+                    specific_logger.setLevel(getattr(logging, env_level))
+        
+        # Log that logging has been configured
+        if name:
+            logger = logging.getLogger(name)
+            logger.debug(f"Logging configured for {name} from {config_path}")
+        else:
+            logging.debug(f"Logging configured for root logger from {config_path}")
             
-            file_handler = logging.handlers.RotatingFileHandler(
-                filename, maxBytes=max_bytes, backupCount=backup_count
-            )
-            file_level = file_config.get('level', 'DEBUG')
-            try:
-                file_handler.setLevel(getattr(logging, file_level.upper()))
-            except AttributeError:
-                file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(formatter)
-            root_logger.addHandler(file_handler)
-        except Exception as e:
-            print(f"Warning: Failed to set up file logging: {e}", file=sys.stderr)
-    
-    # If no handlers were added, add a basic console handler
-    if not root_logger.handlers:
-        basic_handler = logging.StreamHandler(sys.stdout)
-        basic_handler.setLevel(level)
-        basic_handler.setFormatter(formatter)
-        root_logger.addHandler(basic_handler)
-    
-    # Log that logging has been configured
-    if name:
-        logger = logging.getLogger(name)
-        logger.debug(f"Logging configured for {name}")
-    else:
-        logging.debug("Logging configured for root logger")
+    except Exception as e:
+        # Fallback to basic configuration if INI file is invalid
+        print(f"Warning: Failed to load logging config from {config_path}: {e}", file=sys.stderr)
+        print("Using basic logging configuration", file=sys.stderr)
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(levelname)s: %(name)s: %(message)s',
+            stream=sys.stderr
+        )
 
 
 def get_logger(name: str) -> logging.Logger:
