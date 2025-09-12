@@ -26,6 +26,18 @@ def config(profile: str = None):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(ctx, *args, **kwargs):
+            # Handle --dproj parameter by setting PROJECT_ID before config loading
+            dproj = kwargs.get('dproj')
+            if dproj:
+                from multi_eden.build.config.loading import get_project_id_from_projects_file
+                import os
+                try:
+                    project_id = get_project_id_from_projects_file(dproj)
+                    os.environ['PROJECT_ID'] = project_id
+                except Exception as e:
+                    print(f"❌ Failed to load project ID for '{dproj}': {e}", file=sys.stderr)
+                    sys.exit(1)
+            
             # If no profile specified, try to get it from profile parameter
             profile_to_load = profile
             if not profile_to_load:

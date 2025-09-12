@@ -20,13 +20,13 @@ from multi_eden.build.config.exceptions import ConfigException
     'debug': 'Enable debug logging (sets LOG_LEVEL=DEBUG)'
 })
 @config("ai")  # Default to ai environment
-def prompt(ctx, prompt_text, config_env=None, model='gemini-2.5-flash', grounding=False, quiet=False, debug=False):
+def prompt(ctx, prompt_text, dproj=None, model='gemini-2.5-flash', grounding=False, quiet=False, debug=False):
     """
     Send a prompt to an AI model.
     
     Examples:
         invoke prompt --message="What is the capital of France?"
-        invoke prompt --message="Explain quantum computing" --config-env=dev
+        invoke prompt --message="Explain quantum computing" --dproj=dev
         echo "Hello AI" | invoke prompt --message=-
     """
     
