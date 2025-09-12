@@ -45,16 +45,15 @@ def _setup_environment_variables():
     """
     Set up environment variables for logging configuration.
     
-    Sets LOG_LEVEL to INFO if not already set, ensuring the INI file has a valid value.
+    Only validates LOG_LEVEL if it's set - does not set a default value.
+    This allows INI file settings to be used as the default.
     """
-    if 'LOG_LEVEL' not in os.environ:
-        os.environ['LOG_LEVEL'] = 'INFO'
-    
-    # Validate LOG_LEVEL
-    log_level = os.environ['LOG_LEVEL'].strip().upper()
-    if log_level not in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
-        print(f"Warning: Invalid LOG_LEVEL '{log_level}', using INFO", file=sys.stderr)
-        os.environ['LOG_LEVEL'] = 'INFO'
+    # Only validate LOG_LEVEL if it's explicitly set
+    if 'LOG_LEVEL' in os.environ:
+        log_level = os.environ['LOG_LEVEL'].strip().upper()
+        if log_level not in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+            print(f"Warning: Invalid LOG_LEVEL '{log_level}', using INFO", file=sys.stderr)
+            os.environ['LOG_LEVEL'] = 'INFO'
 
 
 def bootstrap_logging(name: Optional[str] = None) -> None:
@@ -93,7 +92,7 @@ def bootstrap_logging(name: Optional[str] = None) -> None:
             disable_existing_loggers=False
         )
         
-        # Apply LOG_LEVEL environment variable override
+        # Apply LOG_LEVEL environment variable override (only if explicitly set)
         env_log_level = os.environ.get('LOG_LEVEL')
         if env_log_level and env_log_level.strip():
             env_level = env_log_level.strip().upper()
